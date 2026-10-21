@@ -1,0 +1,117 @@
+rules_version = '2';
+
+/**
+ * TownSync Firestore rules.
+ *
+ * Roles are stored on the user profile document (`users/{uid}.role`) and are
+ * mirrored into the `role` custom claim by the Admin SDK on the server side.
+ * The rules below read the role from the profile document so they work even
+ * before claims are provisioned.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isRole(role) {
+      return isSignedIn() && userRole() == role;
+    }
+
+    function isAdmin() {
+      return isRole('admin');
+    }
+
+    function isStaff() {
+      return isRole('admin') || isRole('maintenance') || isRole('operator');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ---------------------------------------------------------------- users
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId
+                    && request.resource.data.role == 'resident';
+      // Users may update their own profile but may never escalate their role.
+      allow update: if isAdmin()
+                    || (isOwner(userId)
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.points == resource.data.points);
+      allow delete: if isAdmin();
+    }
+
+    // --------------------------------------------------------------- reports
+    match /reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.reportedBy == request.auth.uid
+                    && request.resource.data.status == 'submitted';
+      // Residents may edit their own open report; staff may triage anything.
+      allow update: if isStaff()
+                    || (isOwner(resource.data.reportedBy)
+                        && resource.data.status in ['submitted', 'under_review']);
+      allow delete: if isAdmin();
+    }
+
+    // ----------------------------------------------------------- obstacles
+    match /accessibilityFeatures/{featureId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isStaff() || isOwner(resource.data.reportedBy);
+      allow delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------- hazards
+    match /safetyHazards/{hazardId} {
+      allow read: if isSignedIn();
+      allow create: if isStaff();
+      allow update: if isStaff() || isOwner(resource.data.reportedBy);
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------- stations
+    match /recyclingStations/{stationId} {
+      allow read: if isSignedIn();
+      allow write: if isRole('operator') || isAdmin();
+    }
+
+    // ----------------------------------------------------------- activities
+    match /recyclingActivities/{activityId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      // Verification and point awarding is an operator responsibility.
+      allow update: if isRole('operator') || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // --------------------------------------------------------- transactions
+    match /rewardTransactions/{transactionId} {
+      allow read: if isSignedIn() && (isOwner(resource.data.userId) || isStaff());
+      allow write: if isRole('operator') || isAdmin();
+    }
+
+    // ---------------------------------------------------------------- tasks
+    match /maintenanceTasks/{taskId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------- notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && (isOwner(resource.data.userId) || isStaff());
+      allow create: if isStaff();
+      allow update: if isOwner(resource.data.userId) || isStaff();
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+  }
+}

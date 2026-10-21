@@ -1,0 +1,42 @@
+rules_version = '2';
+
+/**
+ * TownSync Cloud Storage rules.
+ *
+ * Evidence photos are grouped per user so that every uploaded file inherits
+ * the uploader's authorisation context.
+ */
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isStaff() {
+      return isSignedIn()
+        && get(/databases/(default)/documents/users/$(request.auth.uid)).data.role
+             in ['admin', 'maintenance', 'operator'];
+    }
+
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId) || isStaff();
+      allow write: if isOwner(userId) && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /reports/{reportId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+                   && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    match /tasks/{taskId}/{allPaths=**} {
+      allow read: if isStaff();
+      allow write: if isStaff() && request.resource.size < 10 * 1024 * 1024;
+    }
+  }
+}
