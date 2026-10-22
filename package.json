@@ -1,9 +1,9 @@
 {
-  "name": "townsync",
+  "name": "UrbanLink",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "TownSync — Smart & Inclusive Township Management System",
+  "description": "UrbanLink — Smart & Inclusive Township Management System",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

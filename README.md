@@ -1,6 +1,6 @@
-# TownSync — Smart & Inclusive Township Management System
+# UrbanLink — Smart & Inclusive Township Management System — Smart & Inclusive Township Management System Inclusive Township Management System
 
-TownSync is a single-page React application that unifies four township services into one
+UrbanLink is a single-page React application that unifies four township services into one
 connected platform:
 
 | Module | Purpose |
