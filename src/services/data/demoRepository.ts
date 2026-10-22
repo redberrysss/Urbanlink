@@ -134,7 +134,7 @@ export const demoRepository: Repository = {
   async listNotifications(userId) {
     await delay();
     return state.notifications
-      .filter((n) => n.userId === userId)
+      .filter((n) => n.userId === userId || n.scope === 'township')
       .map((n) => ({ ...n }))
       .sort((a, b) => (a.at < b.at ? 1 : -1));
   },

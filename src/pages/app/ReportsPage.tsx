@@ -40,7 +40,7 @@ export function ReportsPage() {
 
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState<ScopeFilter>(
-    (params.get('scope') as ScopeFilter) ?? 'all',
+    (params.get('scope') as ScopeFilter) ?? 'mine',
   );
   const [status, setStatus] = useState<ReportStatus | 'all'>(
     (params.get('status') as ReportStatus | 'all') ?? 'all',
@@ -229,12 +229,11 @@ export function ReportsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="FixMyTown · Community Issue Tracker"
         title="Reports"
-        description="Every community report in one queue — tracked from submission, through triage and assignment, to verified resolution."
+        description="My reports by default. Switch to Nearby reports to see what others have raised and support existing issues."
         actions={
           <Link to="/app/reports/new">
-            <Button icon={<Plus className="h-4 w-4" />}>New report</Button>
+            <Button icon={<Plus className="h-4 w-4" />}>Report an issue</Button>
           </Link>
         }
       />
@@ -245,9 +244,10 @@ export function ReportsPage() {
             [
               { key: 'all' as ScopeFilter, label: 'All reports', value: counts.all, color: '#176B5B' },
               { key: 'mine' as ScopeFilter, label: 'My reports', value: counts.mine, color: '#0EA5E9' },
+              { key: 'all' as ScopeFilter, label: 'Nearby reports', value: counts.all, color: '#64748B' },
               {
                 key: 'critical' as ScopeFilter,
-                label: 'High priority',
+                label: 'Needs attention',
                 value: counts.critical,
                 color: '#FB5A36',
               },
@@ -338,6 +338,30 @@ export function ReportsPage() {
                 />
               </div>
             </div>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardBody className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={scope === 'mine' ? 'primary' : 'secondary'}
+                onClick={() => updateScope('mine')}
+              >
+                My reports
+              </Button>
+              <Button
+                size="sm"
+                variant={scope === 'all' ? 'primary' : 'secondary'}
+                onClick={() => updateScope('all')}
+              >
+                Nearby reports
+              </Button>
+            </div>
+            <Link to="/app/reports/new">
+              <Button size="sm" icon={<Plus className="h-4 w-4" />}>Report an issue</Button>
+            </Link>
           </CardBody>
         </Card>
 

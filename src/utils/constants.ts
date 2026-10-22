@@ -338,6 +338,9 @@ export const MOBILITY_PROFILES: MobilityProfileSpec[] = [
   },
 ];
 
+/** Reserved recipient id used for notices broadcast to every resident. */
+export const TOWNSHIP_NOTICE_RECIPIENT = 'township';
+
 export const NOTIFICATION_TYPES: Record<
   AppNotification['type'],
   { label: string; color: string; bg: string }

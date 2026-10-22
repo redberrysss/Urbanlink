@@ -26,6 +26,8 @@ export interface User {
   points: number;
   /** Household / block reference used for reporting density. */
   block?: string;
+  /** Preferred mobility profile used to pre-select the route planner. */
+  mobilityProfile?: MobilityProfile;
   joinedAt: Timestamp;
   isDemo?: boolean;
   /** Team membership for maintenance staff. */
@@ -185,6 +187,10 @@ export interface RouteLeg {
   to: ID;
   distanceM: number;
   accessibilityScore: number;
+  /** Effective safety score for the segment after live obstacles are applied. */
+  safetyScore: number;
+  /** Effective smoothness score for the segment after live obstacles are applied. */
+  smoothnessScore: number;
   obstacleCount: number;
   rampCount: number;
   shelterScore: number;
@@ -263,6 +269,8 @@ export interface Report {
   reportedAt: Timestamp;
   updatedAt: Timestamp;
   resolvedAt?: Timestamp;
+  /** Set when a resident disputes a resolution and the report is reopened. */
+  reopenedAt?: Timestamp;
   assignedTeamId?: ID;
   assignedStaffId?: ID;
   assignedStaffName?: string;
@@ -472,6 +480,11 @@ export interface AppNotification {
   read: boolean;
   link?: string;
   reportId?: ID;
+  /**
+   * `user` notifications are addressed to one resident, `township` notices are
+   * broadcast to everyone (stored with the reserved `township` recipient id).
+   */
+  scope?: 'user' | 'township';
 }
 
 /* ------------------------------------------------------------------ *
@@ -489,14 +502,4 @@ export interface TownshipStats {
   totalPointsAwarded: number;
   avgResolutionDays: number;
   duplicateRate: number;
-}
-
-export interface ActivityFeedItem {
-  id: ID;
-  at: Timestamp;
-  kind: 'report' | 'status' | 'maintenance' | 'recycling' | 'hazard' | 'obstacle';
-  title: string;
-  description: string;
-  actor?: string;
-  link?: string;
 }

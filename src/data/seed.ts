@@ -13,6 +13,7 @@ import type {
   User,
 } from '@/types';
 import { daysAgo, round } from '@/utils/geo';
+import { TOWNSHIP_NOTICE_RECIPIENT } from '@/utils/constants';
 import { demoPhoto } from '@/utils/placeholderImage';
 import { computePriority } from '@/services/analytics/priority';
 import { ROUTE_EDGES, ROUTE_NODE_MAP } from './township';
@@ -1387,12 +1388,24 @@ export function buildSeedNotifications(): AppNotification[] {
     },
     {
       id: 'nt5',
-      userId: 'u_resident',
+      userId: TOWNSHIP_NOTICE_RECIPIENT,
+      scope: 'township',
       title: 'Heavy rain advisory',
       body: 'Standing water expected in the wetland and transit underpass approaches.',
       type: 'warning',
       at: daysAgo(2),
       read: false,
+    },
+    {
+      id: 'nt9',
+      userId: TOWNSHIP_NOTICE_RECIPIENT,
+      scope: 'township',
+      title: 'Boardwalk resurfacing works until Sunday',
+      body: 'The wetland boardwalk is being resurfaced from Monday to Sunday. The northern approach is closed — use the Perdana Heights path in Smart Navigation while works are on site.',
+      type: 'info',
+      at: daysAgo(0, 5),
+      read: false,
+      link: '/app/navigation',
     },
     {
       id: 'nt6',

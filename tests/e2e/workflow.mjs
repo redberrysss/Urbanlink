@@ -31,20 +31,21 @@ async function main() {
     await harness.setRole('resident', 'u_resident');
     await harness.goto('/app/reports/new');
 
-    await harness.evaluate(SET_VALUE('#report-title', reportTitle));
     await harness.evaluate(
       SET_VALUE(
         '#report-description',
         'Automated end-to-end test description for a damaged paving slab outside the block.',
       ),
     );
+    await harness.evaluate(SET_VALUE('#report-title', reportTitle));
     await harness.evaluate(
-      SET_VALUE('#report-address', 'Jalan Melati 3, near the playground'),
+      SET_VALUE('#place-search', 'Jalan Melati 3, near the playground'),
     );
     await harness.evaluate(CLICK_MAP);
     await harness.wait(800);
-    // Mark it as affecting accessibility so an obstacle is created with it.
-    await harness.evaluate(CLICK_TEXT('button', 'blocks accessibility'));
+    // Answer "Yes" to "Does this block the walkway or entrance?" so an
+    // accessibility obstacle is created alongside the report.
+    await harness.evaluate(CLICK_TEXT('button', 'yes'));
     await harness.evaluate(
       `document.querySelector('button[type="submit"]').click()`,
     );
@@ -217,6 +218,34 @@ async function main() {
       afterResolve?.notifications >= 2,
       `notifications=${afterResolve?.notifications}`,
     );
+
+    /* ---------------------- 4b. resident reopens the resolved report */
+    await harness.setRole('resident', 'u_resident');
+    await harness.goto(`/app/reports/${reportId}`, 2200);
+    const reopenVisible = await harness.evaluate(
+      `[...document.querySelectorAll('button')].some((b) => (b.innerText || '').trim() === 'Problem still exists')`,
+    );
+    reporter.check('resident sees the reopen control on a resolved report', reopenVisible === true);
+
+    await harness.evaluate(CLICK_TEXT('button', 'Problem still exists'));
+    await harness.wait(800);
+    await harness.evaluate(
+      SET_VALUE('#review-reason', 'The temporary patch failed and water is pooling again after the rain.'),
+    );
+    await harness.evaluate(CLICK_TEXT('button', 'Request another review'));
+    await harness.wait(2500);
+
+    const afterReopen = await harness.evaluate(`(() => {
+      const s = ${STORE};
+      const r = (s?.reports ?? []).find((x) => x.id === ${JSON.stringify(reportId)});
+      return { status: r?.status ?? null, reopened: Boolean(r?.reopenedAt) };
+    })()`);
+    reporter.check(
+      'reopen moves the report back into review',
+      afterReopen?.status === 'under_review',
+      `status=${afterReopen?.status}`,
+    );
+    reporter.check('reopen stamps the report', afterReopen?.reopened === true);
 
     /* ------------------------------------ 5. operator verifies recycling */
     await harness.setRole('operator', 'u_operator');

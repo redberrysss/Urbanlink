@@ -67,9 +67,11 @@ async function main() {
   const routesCode = await run('routes.mjs', { BASE_URL: baseUrl });
   console.log('');
   const workflowCode = await run('workflow.mjs', { BASE_URL: baseUrl });
+  console.log('');
+  const refactorCode = await run('refactor.mjs', { BASE_URL: baseUrl });
 
   server?.kill();
-  const failed = routesCode !== 0 || workflowCode !== 0;
+  const failed = routesCode !== 0 || workflowCode !== 0 || refactorCode !== 0;
   console.log(
     failed
       ? '\nEnd-to-end suite failed.'

@@ -66,7 +66,7 @@ password `demo1234` when signing in through the email form.
 
 | Role | Email | Lands on | Scope |
 | --- | --- | --- | --- |
-| Resident | `resident@townsync.demo` | `/app` | Report issues, plan accessible routes, submit recycling, earn points. |
+| Resident | `resident@townsync.demo` | `/app` | Report issues, plan accessible routes, submit recycling, earn points — home is their action hub. |
 | Maintenance | `maintenance@townsync.demo` | `/app/tasks` | Work the task queue, upload evidence, close jobs. |
 | Operator | `operator@townsync.demo` | `/app/verification` | Verify recycling submissions, manage stations, award points. |
 | Admin | `admin@townsync.demo` | `/app/admin` | Full oversight: triage, teams, hazards, users, analytics. |
@@ -88,12 +88,13 @@ The active session is stored under the `townsync.session` key.
 | `npm run test:e2e` | Builds nothing — serves `dist/` and runs the browser suites. Run `npm run build` first. |
 | `npm run test:e2e:routes` | Route smoke suite on its own (`BASE_URL` selects the server). |
 | `npm run test:e2e:workflow` | Cross-module workflow suite on its own. |
+| `npm run test:e2e:refactor` | Resident-experience regression suite (home, bottom nav, report form, notifications, privacy, responsive). |
 
 ### End-to-end tests
 
 The suites in `tests/e2e/` drive a real headless Chrome instance over the
 DevTools Protocol, so the app is exercised exactly as a user would exercise
-it. `npm run test:e2e` boots `vite preview` from `dist/`, runs both suites and
+it. `npm run test:e2e` boots `vite preview` from `dist/`, runs all three suites and
 shuts the server down again.
 
 ```bash
@@ -111,7 +112,8 @@ BASE_URL=http://localhost:5173 npm run test:e2e:workflow
 | Suite | Covers |
 | --- | --- |
 | `tests/e2e/routes.mjs` | Every route of all four roles plus the public pages renders with content and no console errors. |
-| `tests/e2e/workflow.mjs` | Report submission → admin triage → maintenance task → resolution (obstacle cleared, resident notified) → recycling verification awards points. |
+| `tests/e2e/workflow.mjs` | Report submission → admin triage → maintenance task → resolution (obstacle cleared, resident notified) → resident reopens the resolved report → recycling verification awards points. |
+| `tests/e2e/refactor.mjs` | Resident home, the five-destination bottom nav, report form behaviour (suggested title, impact questions, draft recovery), report reopening, one notification feed with town-wide broadcasts, single hazard map, merged route profile, private recycling activity and rewards, logo behaviour, RBAC and mobile overflow. |
 
 ---
 
@@ -145,10 +147,16 @@ src/
 
 **Public** — `/`, `/about`, `/features`, `/how-it-works`, `/signin`, `/register`, `*` (404).
 
-**Authenticated** — `/app` (overview), `/app/navigation`, `/app/reports`,
+**Authenticated** — `/app` (resident home), `/app/overview` (township overview),
+`/app/navigation`, `/app/reports` (My reports by default, `?scope=all` for nearby),
 `/app/reports/new`, `/app/reports/:reportId`, `/app/safety`, `/app/safety/:hazardId`,
-`/app/recycling`, `/app/activities`, `/app/notifications`, `/app/profile`, `/app/settings`,
+`/app/recycling` (`?tab=activity` for your own submissions and rewards; `/app/activities`
+redirects here), `/app/notifications`, `/app/profile`, `/app/settings`,
 `/app/tasks` *(maintenance, admin)*, `/app/verification` *(operator, admin)*.
+
+Residents get a five-destination bottom navigation (Home, Navigate, Reports, Safety,
+Recycling) on small screens; their profile and settings are reached from the account menu.
+
 
 **Admin** — `/app/admin`, `/app/admin/issues`, `/app/admin/teams`,
 `/app/admin/accessibility`, `/app/admin/safety`, `/app/admin/recycling`, `/app/admin/users`,

@@ -1,31 +1,24 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import {
   Clock,
   Leaf,
   MapPin,
   Recycle,
   Search,
-  Sparkles,
-  Trophy,
+  Users,
   Weight,
 } from 'lucide-react';
 import { PageBody, PageHeader } from '@/components/common/PageHeader';
 import { Card, CardBody, CardHeader } from '@/components/common/Card';
-import { Badge, StatusDot } from '@/components/common/Badge';
+import { StatusDot } from '@/components/common/Badge';
 import { Button } from '@/components/common/Button';
 import { Select } from '@/components/common/Select';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Meter } from '@/components/common/Progress';
 import { TownshipMap } from '@/components/maps/TownshipMap';
+import { RecyclingActivityPanel } from '@/components/recycling/RecyclingActivityPanel';
 import { useTownshipData } from '@/contexts/TownshipDataContext';
-import { useAuth } from '@/contexts/AuthContext';
-import {
-  buildLeaderboard,
-  estimateImpact,
-  materialBreakdown,
-} from '@/services/analytics/aggregations';
 import {
   MATERIAL_META,
   STATION_STATUS_META,
@@ -35,9 +28,11 @@ import type { MaterialType } from '@/types';
 import { cn } from '@/utils/cn';
 
 import { EMPTY_LIST } from '@/utils/empty';
+
+type HubTab = 'stations' | 'activity';
+
 export function RecyclingHubPage() {
-  const { stations, activities, users, transactions } = useTownshipData();
-  const { user } = useAuth();
+  const { stations, activities } = useTownshipData();
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [material, setMaterial] = useState<MaterialType | 'all'>('all');
@@ -45,11 +40,18 @@ export function RecyclingHubPage() {
   const allStations = stations.data ?? EMPTY_LIST;
   const allActivities = activities.data ?? EMPTY_LIST;
 
+  const tab: HubTab = params.get('tab') === 'activity' ? 'activity' : 'stations';
   const focusedStationId = params.get('station');
+
+  const setTab = (next: HubTab) => {
+    const nextParams = new URLSearchParams(params);
+    if (next === 'activity') nextParams.set('tab', 'activity');
+    else nextParams.delete('tab');
+    setParams(nextParams, { replace: true });
+  };
 
   const filtered = useMemo(() => {
     let list = [...allStations];
-    if (focusedStationId) list = list.filter((s) => s.id === focusedStationId);
     if (material !== 'all') {
       list = list.filter((s) => s.accepted.includes(material));
     }
@@ -60,103 +62,155 @@ export function RecyclingHubPage() {
       );
     }
     return list;
-  }, [allStations, focusedStationId, material, search]);
+  }, [allStations, material, search]);
 
-  const impact = useMemo(() => estimateImpact(allActivities), [allActivities]);
-  const breakdown = useMemo(() => materialBreakdown(allActivities), [allActivities]);
-  const leaderboard = useMemo(
-    () => buildLeaderboard(users.data ?? EMPTY_LIST, allActivities, 6),
-    [users.data, allActivities],
+  const focusedStation = useMemo(
+    () => allStations.find((s) => s.id === focusedStationId),
+    [allStations, focusedStationId],
   );
 
-  const myTransactions = useMemo(
-    () => (transactions.data ?? EMPTY_LIST).filter((t) => t.userId === user?.id),
-    [transactions.data, user?.id],
-  );
+  const focusStation = (stationId: string | null) => {
+    const next = new URLSearchParams(params);
+    if (stationId) next.set('station', stationId);
+    else next.delete('station');
+    setParams(next, { replace: true });
+  };
 
-  const totalKg = breakdown.reduce((s, b) => s + b.kg, 0);
+  /** Township-wide impact computed from operator-verified submissions only. */
+  const impact = useMemo(() => {
+    const verified = allActivities.filter((a) => a.status === 'verified');
+    const kg = verified.reduce((s, a) => s + a.weightKg, 0);
+    const participating = new Set(verified.map((a) => a.userId)).size;
+    return {
+      verifiedKg: kg,
+      verifiedCount: verified.length,
+      participating,
+    };
+  }, [allActivities]);
 
   return (
     <div>
       <PageHeader
-        eyebrow="RecycleMate · Community Recycling Hub"
-        title="Recycling hub"
-        description="Find a station, check what it accepts and follow the impact of every verified kilogram collected across the township."
+        title="Recycling"
+        description="Stations, your submissions and rewards — all in one place."
+        actions={
+          <div className="flex gap-1 rounded-xl bg-ink-100 p-1 dark:bg-white/[0.06]">
+            {(
+              [
+                { id: 'stations' as const, label: 'Stations' },
+                { id: 'activity' as const, label: 'My submissions & rewards' },
+              ]
+            ).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                aria-pressed={tab === t.id}
+                className={cn(
+                  'rounded-lg px-3.5 py-2 text-xs font-bold transition',
+                  tab === t.id
+                    ? 'bg-white text-ink-900 shadow-sm dark:bg-ink-900 dark:text-white'
+                    : 'text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-100',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        }
       />
 
       <PageBody className="space-y-6">
-        {/* Impact banner */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-          className="grid gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-5 dark:border-emerald-500/25 dark:from-emerald-500/10 dark:to-teal-500/5 sm:grid-cols-2 xl:grid-cols-4"
-        >
-          {[
-            {
-              label: 'Total recycled',
-              value: formatWeight(impact.kgRecycled),
-              icon: <Weight className="h-5 w-5" />,
-            },
-            {
-              label: 'Landfill avoided (est.)',
-              value: formatWeight(impact.estimatedLandfillAvoidedKg),
-              icon: <Leaf className="h-5 w-5" />,
-            },
-            {
-              label: 'CO₂ avoided (est.)',
-              value: `${impact.estimatedCo2Kg.toFixed(0)} kg`,
-              icon: <Recycle className="h-5 w-5" />,
-            },
-            {
-              label: 'Tree-years equivalent',
-              value: impact.estimatedTreesEquivalent.toFixed(2),
-              icon: <Trophy className="h-5 w-5" />,
-            },
-          ].map((s) => (
-            <div key={s.label} className="flex items-center gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
-                {s.icon}
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-emerald-800/80 dark:text-emerald-200/80">
-                  {s.label}
-                </p>
-                <p className="truncate text-lg font-extrabold text-emerald-900 dark:text-emerald-50">
-                  {s.value}
-                </p>
-              </div>
-            </div>
-          ))}
-          <p className="text-[10px] leading-relaxed text-emerald-900/70 dark:text-emerald-100/60 sm:col-span-2 xl:col-span-4">
-            {impact.disclaimer}
-          </p>
-        </motion.div>
-
-        <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
-          <div className="space-y-6">
-            {/* Stations */}
+        {tab === 'activity' ? (
+          <RecyclingActivityPanel />
+        ) : (
+          <>
+            {/* ---------- Township-wide community impact (measured, not estimated) ---------- */}
             <Card>
               <CardHeader
-                icon={<Recycle className="h-5 w-5" />}
-                title="Recycling stations"
-                subtitle={`${filtered.length} of ${allStations.length} stations`}
-                action={
-                  focusedStationId ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        const next = new URLSearchParams(params);
-                        next.delete('station');
-                        setParams(next, { replace: true });
-                      }}
-                    >
-                      Clear focus
-                    </Button>
-                  ) : null
-                }
+                icon={<Leaf className="h-5 w-5" />}
+                title="Community impact"
+                subtitle="Counted from operator-verified recycling submissions across the township"
               />
+              <CardBody className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    {
+                      label: 'Waste diverted from disposal',
+                      value: formatWeight(impact.verifiedKg),
+                      icon: <Weight className="h-5 w-5" />,
+                    },
+                    {
+                      label: 'Verified submissions',
+                      value: String(impact.verifiedCount),
+                      icon: <Recycle className="h-5 w-5" />,
+                    },
+                    {
+                      label: 'Residents taking part',
+                      value: String(impact.participating),
+                      icon: <Users className="h-5 w-5" />,
+                    },
+                    {
+                      label: 'Stations available',
+                      value: String(allStations.length),
+                      icon: <MapPin className="h-5 w-5" />,
+                    },
+                  ].map((s) => (
+                    <div
+                      key={s.label}
+                      className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10"
+                    >
+                      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
+                        {s.icon}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-emerald-800/80 dark:text-emerald-200/80">
+                          {s.label}
+                        </p>
+                        <p className="truncate text-lg font-extrabold text-emerald-900 dark:text-emerald-50">
+                          {s.value}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-xl border border-ink-200 bg-ink-50 p-3.5 text-[11px] leading-relaxed text-ink-500 dark:border-white/10 dark:bg-white/[0.03] dark:text-ink-400">
+                  <p className="font-bold text-ink-700 dark:text-ink-200">
+                    What these figures count, and for which period
+                  </p>
+                  <p className="mt-1">
+                    Only submissions an operator has verified are included — pending and rejected
+                    drop-offs are left out, so nothing here is an estimate. “Waste diverted from
+                    disposal” is the verified weight of those submissions; “residents taking part”
+                    counts distinct residents with at least one verified submission.
+                  </p>
+                  <p className="mt-1">
+                    Reporting period: every verified submission recorded in the township so far.
+                    Individual resident figures stay private — only township totals are shown here,
+                    and your own submissions are on the “My activity” tab.
+                  </p>
+                </div>
+              </CardBody>
+            </Card>
+
+            {/* ---------- Station map + list ---------- */}
+            <Card className="overflow-hidden">
+              <CardHeader
+                icon={<MapPin className="h-5 w-5" />}
+                title="Recycling stations"
+                subtitle={`${filtered.length} of ${allStations.length} stations · pick a marker or a card to see the details`}
+              />
+              <div className="h-[340px] w-full sm:h-[420px]">
+                <TownshipMap
+                  layers={{ routes: false, issues: false, hazards: false, stations: true }}
+                  reports={[]}
+                  obstacles={[]}
+                  hazards={[]}
+                  stations={filtered}
+                  onSelectStation={(s) => focusStation(s.id)}
+                />
+              </div>
+
               <CardBody className="space-y-4">
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <div className="relative flex-1">
@@ -184,6 +238,61 @@ export function RecyclingHubPage() {
                   />
                 </div>
 
+                {focusedStation ? (
+                  <div className="rounded-2xl border border-emerald-300 bg-emerald-50/60 p-4 dark:border-emerald-500/40 dark:bg-emerald-500/10">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-ink-900 dark:text-white">
+                          {focusedStation.name}
+                        </p>
+                        <p className="mt-1 flex items-center gap-1.5 text-xs text-ink-600 dark:text-ink-300">
+                          <MapPin className="h-3.5 w-3.5" />
+                          {focusedStation.address}
+                        </p>
+                        <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-600 dark:text-ink-300">
+                          <Clock className="h-3.5 w-3.5" />
+                          {focusedStation.hours}
+                        </p>
+                      </div>
+                      <Button size="sm" variant="secondary" onClick={() => focusStation(null)}>
+                        Clear selection
+                      </Button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {focusedStation.accepted.map((m) => (
+                        <span
+                          key={m}
+                          className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                          style={{
+                            backgroundColor: MATERIAL_META[m].bg,
+                            color: MATERIAL_META[m].color,
+                          }}
+                        >
+                          {MATERIAL_META[m].label}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="mt-3">
+                      <Meter
+                        label={`Current load ${formatWeight(focusedStation.currentKg)} / ${formatWeight(focusedStation.capacityKg)}`}
+                        value={
+                          focusedStation.capacityKg
+                            ? Math.round(
+                                (focusedStation.currentKg / focusedStation.capacityKg) * 100,
+                              )
+                            : 0
+                        }
+                        color={
+                          focusedStation.capacityKg &&
+                          focusedStation.currentKg / focusedStation.capacityKg > 0.85
+                            ? '#F0330F'
+                            : '#047857'
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
                 {filtered.length === 0 ? (
                   <EmptyState
                     icon={<Recycle className="h-5 w-5" />}
@@ -199,11 +308,8 @@ export function RecyclingHubPage() {
                         <button
                           key={s.id}
                           type="button"
-                          onClick={() => {
-                            const next = new URLSearchParams(params);
-                            next.set('station', s.id);
-                            setParams(next, { replace: true });
-                          }}
+                          onClick={() => focusStation(focusedStationId === s.id ? null : s.id)}
+                          aria-pressed={focusedStationId === s.id}
                           className={cn(
                             'rounded-xl border p-4 text-left transition hover:border-emerald-400',
                             focusedStationId === s.id
@@ -260,142 +366,8 @@ export function RecyclingHubPage() {
               </CardBody>
             </Card>
 
-            {/* Material breakdown */}
-            <Card>
-              <CardHeader
-                icon={<Weight className="h-5 w-5" />}
-                title="Collected by material"
-                subtitle={`${formatWeight(totalKg)} verified across all stations`}
-              />
-              <CardBody className="space-y-3">
-                {breakdown.length === 0 ? (
-                  <EmptyState
-                    icon={<Weight className="h-5 w-5" />}
-                    title="No verified collections yet"
-                    description="Once operators verify submissions, the totals appear here."
-                  />
-                ) : (
-                  breakdown.map((b) => (
-                    <div key={b.material}>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-ink-800 dark:text-ink-100">{b.label}</span>
-                        <span className="font-semibold text-ink-500 dark:text-ink-400">
-                          {formatWeight(b.kg)} · {b.points} pts
-                        </span>
-                      </div>
-                      <div className="mt-1.5">
-                        <Meter label="" value={totalKg ? (b.kg / totalKg) * 100 : 0} color={b.color} />
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardBody>
-            </Card>
-          </div>
-
-          {/* Right rail */}
-          <div className="space-y-6">
-            <Card className="overflow-hidden">
-              <div className="h-[300px]">
-                <TownshipMap
-                  layers={{ routes: false, issues: false, hazards: false, stations: true }}
-                  reports={[]}
-                  obstacles={[]}
-                  hazards={[]}
-                  stations={filtered}
-                  onSelectStation={(s) => {
-                    const next = new URLSearchParams(params);
-                    next.set('station', s.id);
-                    setParams(next, { replace: true });
-                  }}
-                />
-              </div>
-            </Card>
-
-            <Card>
-              <CardHeader
-                icon={<Trophy className="h-5 w-5" />}
-                title="Top recyclers"
-                subtitle="Verified contribution this period"
-              />
-              <CardBody className="space-y-2.5">
-                {leaderboard.length === 0 ? (
-                  <EmptyState icon={<Trophy className="h-5 w-5" />} title="No rankings yet" />
-                ) : (
-                  leaderboard.map((entry) => (
-                    <div key={entry.userId} className="flex items-center gap-3">
-                      <span
-                        className={cn(
-                          'grid h-7 w-7 shrink-0 place-items-center rounded-lg text-xs font-extrabold',
-                          entry.rank === 1
-                            ? 'bg-amber-100 text-amber-700'
-                            : entry.rank === 2
-                              ? 'bg-ink-200 text-ink-700'
-                              : entry.rank === 3
-                                ? 'bg-orange-100 text-orange-700'
-                                : 'bg-ink-100 text-ink-500',
-                        )}
-                      >
-                        {entry.rank}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-bold text-ink-800 dark:text-ink-100">
-                          {entry.name}
-                        </p>
-                        <p className="text-[10px] text-ink-400">
-                          {formatWeight(entry.kg)} · {entry.activities} submissions
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-xs font-extrabold text-emerald-700 dark:text-emerald-300">
-                        {entry.points} pts
-                      </span>
-                    </div>
-                  ))
-                )}
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader
-                icon={<Sparkles className="h-5 w-5" />}
-                title="My rewards"
-                subtitle={`${user?.points ?? 0} points balance`}
-              />
-              <CardBody>
-                {myTransactions.length === 0 ? (
-                  <EmptyState
-                    icon={<Sparkles className="h-5 w-5" />}
-                    title="No reward history yet"
-                    description="Submit a recycling activity to start earning points."
-                  />
-                ) : (
-                  <div className="space-y-2">
-                    {myTransactions.slice(0, 6).map((t) => (
-                      <div
-                        key={t.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-ink-100 p-2.5 dark:border-white/10"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-semibold text-ink-800 dark:text-ink-100">
-                            {t.reason}
-                          </p>
-                          <p className="text-[10px] text-ink-400">{t.type}</p>
-                        </div>
-                        <Badge
-                          color={t.points >= 0 ? '#047857' : '#9F1239'}
-                          bg={t.points >= 0 ? '#D1FAE5' : '#FFE4E6'}
-                        >
-                          {t.points >= 0 ? '+' : ''}
-                          {t.points}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardBody>
-            </Card>
-          </div>
-        </div>
+          </>
+        )}
       </PageBody>
     </div>
   );

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Accessibility,
+  AlertTriangle,
   ArrowLeft,
   Bell,
   CheckCircle2,
@@ -68,9 +69,12 @@ export function ReportDetailPage() {
     tasks,
     setReportStatus,
     support,
+    requestReview,
   } = useTownshipData();
 
   const [statusOpen, setStatusOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewReason, setReviewReason] = useState('');
   const [nextStatus, setNextStatus] = useState<ReportStatus>('under_review');
   const [note, setNote] = useState('');
   const [teamId, setTeamId] = useState<string>(MAINTENANCE_TEAMS[0]?.id ?? '');
@@ -153,6 +157,32 @@ export function ReportDetailPage() {
     }
   };
 
+  const isReporter = report.reportedBy === user?.id;
+  const canRequestReview = isReporter && report.status === 'resolved';
+
+  const submitReview = async () => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      await requestReview({ reportId: report.id, reason: reviewReason.trim() });
+      toast({
+        kind: 'success',
+        title: 'Review requested',
+        description: `${report.reference} has been reopened for another look.`,
+      });
+      setReviewOpen(false);
+      setReviewReason('');
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Could not request a review',
+        description: err instanceof Error ? err.message : 'Unexpected error.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleSupport = async () => {
     if (!user) return;
     try {
@@ -195,6 +225,15 @@ export function ReportDetailPage() {
               {alreadySupported ? 'Supported' : 'Support'}{' '}
               {report.supporters.length > 0 ? `(${report.supporters.length})` : ''}
             </Button>
+            {canRequestReview ? (
+              <Button
+                variant="secondary"
+                onClick={() => setReviewOpen(true)}
+                icon={<AlertTriangle className="h-4 w-4" />}
+              >
+                Problem still exists
+              </Button>
+            ) : null}
             {canManage ? (
               <Button onClick={() => setStatusOpen(true)} icon={<Wrench className="h-4 w-4" />}>
                 Update status
@@ -214,9 +253,11 @@ export function ReportDetailPage() {
                   <Badge color={status.color} bg={status.bg}>
                     {status.label}
                   </Badge>
-                  <Badge color={priority.color} bg={priority.bg}>
-                    {priority.label} priority
-                  </Badge>
+                  {canManage ? (
+                    <Badge color={priority.color} bg={priority.bg}>
+                      {priority.label} priority
+                    </Badge>
+                  ) : null}
                   <Badge color={category.color} bg="#F1F5F9">
                     {category.label}
                   </Badge>
@@ -229,16 +270,20 @@ export function ReportDetailPage() {
                   {[
                     { label: 'Address', value: report.address, icon: <MapPin className="h-3.5 w-3.5" /> },
                     { label: 'Severity', value: report.severity, icon: <ShieldAlert className="h-3.5 w-3.5" /> },
-                    {
-                      label: 'Residents affected',
-                      value: String(report.affectedResidents),
-                      icon: <Users className="h-3.5 w-3.5" />,
-                    },
-                    {
-                      label: 'Priority score',
-                      value: `${report.priority.total} pts`,
-                      icon: <Flag className="h-3.5 w-3.5" />,
-                    },
+                    ...(canManage
+                      ? [
+                          {
+                            label: 'Residents affected',
+                            value: String(report.affectedResidents),
+                            icon: <Users className="h-3.5 w-3.5" />,
+                          },
+                          {
+                            label: 'Priority score',
+                            value: `${report.priority.total} pts`,
+                            icon: <Flag className="h-3.5 w-3.5" />,
+                          },
+                        ]
+                      : []),
                   ].map((d) => (
                     <div key={d.label} className="rounded-xl bg-ink-50 p-3.5 dark:bg-white/[0.04]">
                       <dt className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-ink-400">
@@ -273,7 +318,8 @@ export function ReportDetailPage() {
               </CardBody>
             </Card>
 
-            {/* Priority breakdown */}
+            {/* Priority breakdown — internal scoring, staff only */}
+            {canManage ? (
             <Card>
               <CardHeader
                 icon={<Flag className="h-5 w-5" />}
@@ -319,6 +365,62 @@ export function ReportDetailPage() {
                 />
               </CardBody>
             </Card>
+            ) : null}
+
+            {/* Resolution evidence */}
+            {report.status === 'resolved' ? (
+              <Card>
+                <CardHeader
+                  icon={<CheckCircle2 className="h-5 w-5" />}
+                  title="Resolution evidence"
+                  subtitle="Proof recorded by the crew when the work was completed"
+                />
+                <CardBody className="space-y-3">
+                  {(() => {
+                    const evidenceEntries = [...report.timeline]
+                      .sort((a, b) => (a.at < b.at ? 1 : -1))
+                      .filter((e) => e.photoUrl || e.type === 'resolved' || e.type === 'evidence');
+                    if (evidenceEntries.length === 0) {
+                      return (
+                        <p className="text-sm text-ink-500 dark:text-ink-400">
+                          No photo was attached, but the report was marked resolved.
+                        </p>
+                      );
+                    }
+                    return evidenceEntries.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5 dark:border-emerald-500/25 dark:bg-emerald-500/10"
+                      >
+                        <p className="text-xs font-bold text-ink-800 dark:text-ink-100">
+                          {entry.note}
+                        </p>
+                        <p className="mt-1 text-[10px] text-ink-400">
+                          {entry.actorName} · {formatDateTime(entry.at)}
+                        </p>
+                        {entry.photoUrl ? (
+                          <img
+                            src={entry.photoUrl}
+                            alt="Completion evidence"
+                            className="mt-2.5 h-44 w-full rounded-lg object-cover"
+                            loading="lazy"
+                          />
+                        ) : null}
+                      </div>
+                    ));
+                  })()}
+                  {canRequestReview ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => setReviewOpen(true)}
+                      icon={<AlertTriangle className="h-4 w-4" />}
+                    >
+                      Problem still exists
+                    </Button>
+                  ) : null}
+                </CardBody>
+              </Card>
+            ) : null}
 
             {/* Timeline */}
             <Card>
@@ -563,6 +665,38 @@ export function ReportDetailPage() {
           </div>
         </div>
       </PageBody>
+
+      <Modal
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        title="Problem still exists"
+        description="Tell the township office why this is not fixed. Your report is reopened and the crews are notified."
+        icon={<AlertTriangle className="h-5 w-5" />}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setReviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submitReview} loading={busy}>
+              Request another review
+            </Button>
+          </>
+        }
+      >
+        <div>
+          <label htmlFor="review-reason" className="label">
+            What is still wrong?
+          </label>
+          <textarea
+            id="review-reason"
+            rows={4}
+            value={reviewReason}
+            onChange={(e) => setReviewReason(e.target.value)}
+            placeholder="Describe what you can still see — for example, the pothole was only partly filled."
+            className="input"
+          />
+        </div>
+      </Modal>
 
       <Modal
         open={statusOpen}

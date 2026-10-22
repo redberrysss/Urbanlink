@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   Accessibility,
@@ -10,13 +11,14 @@ import {
   Footprints,
   HeartPulse,
   Info,
+  MapPin,
   Navigation,
   Route as RouteIcon,
   ShieldCheck,
   Sparkles,
   Star,
   Sun,
-  Target,
+  TriangleAlert,
 } from 'lucide-react';
 import { PageBody, PageHeader } from '@/components/common/PageHeader';
 import { Card, CardBody, CardHeader } from '@/components/common/Card';
@@ -27,6 +29,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Meter } from '@/components/common/Progress';
 import { TownshipMap } from '@/components/maps/TownshipMap';
 import { useTownshipData } from '@/contexts/TownshipDataContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/common/Toast';
 import { PLACES, ROUTE_NODES } from '@/data/township';
 import {
@@ -38,6 +41,7 @@ import {
   STRATEGY_LABELS,
 } from '@/services/routing/engine';
 import { MOBILITY_PROFILES, formatDistance, formatDuration } from '@/utils/constants';
+import { haversineMeters } from '@/utils/geo';
 import type { MobilityProfile, RouteResult, RouteStrategy } from '@/types';
 import { cn } from '@/utils/cn';
 
@@ -63,14 +67,19 @@ const STRATEGY_ICONS: Record<RouteStrategy, typeof RouteIcon> = {
 };
 
 export function NavigationPage() {
-  const { obstacles, reports } = useTownshipData();
-  const { toast } = useToast();
+  const { obstacles, reports, hazards } = useTownshipData();
+  const { user, updateProfile } = useAuth();  const { toast } = useToast();
+  const [searchParams] = useSearchParams();
 
   const [startId, setStartId] = useState('n7');
   const [endId, setEndId] = useState('n13');
-  const [profile, setProfile] = useState<MobilityProfile>('wheelchair');
+  const [profile, setProfile] = useState<MobilityProfile>(
+    user?.mobilityProfile ?? 'wheelchair',
+  );
   const [selected, setSelected] = useState<RouteStrategy>('accessible');
   const [showAllObstacles, setShowAllObstacles] = useState(false);
+  // The Safety Monitor deep-links here with ?hazards=1 to show the safety layer.
+  const [showHazards, setShowHazards] = useState(searchParams.get('hazards') !== '0');
 
   const graph = useMemo(
     () => buildGraph(obstacles.data ?? EMPTY_LIST),
@@ -88,13 +97,46 @@ export function NavigationPage() {
     }
   }, [routes, selected]);
 
+  /* Remember the resident's mobility preference for next time. */
+  useEffect(() => {
+    if (user?.role === 'resident' && user.mobilityProfile !== profile) {
+      void updateProfile({ mobilityProfile: profile });
+    }
+  }, [profile, user?.role, user?.mobilityProfile, updateProfile]);
+
   const activeRoute = routes.find((r) => r.strategy === selected) ?? routes[0];
-  const path = activeRoute ? routeGeometry(activeRoute) : [];
+  const path = useMemo(
+    () => (activeRoute ? routeGeometry(activeRoute) : []),
+    [activeRoute],
+  );
+
+  /** Mean shelter rating across the plotted segments (real per-segment data). */
+  const shelteredCoverage = useMemo(() => {
+    if (!activeRoute || activeRoute.legs.length === 0) return 0;
+    return Math.round(
+      activeRoute.legs.reduce((s, leg) => s + leg.shelterScore, 0) / activeRoute.legs.length,
+    );
+  }, [activeRoute]);
 
   const openObstacles = useMemo(
     () => (obstacles.data ?? EMPTY_LIST).filter((o) => o.status !== 'resolved'),
     [obstacles.data],
   );
+
+  /** Hazards within 250 m of the plotted route, nearest first. */
+  const routeHazards = useMemo(() => {
+    const active = (hazards.data ?? EMPTY_LIST).filter((h) => h.status !== 'resolved');
+    if (path.length === 0) return [];
+    return active
+      .map((h) => ({
+        hazard: h,
+        distanceM: Math.min(
+          ...path.map((p) => haversineMeters(p, h.position)),
+        ),
+      }))
+      .filter((entry) => entry.distanceM <= 250)
+      .sort((a, b) => a.distanceM - b.distanceM);
+  }, [hazards.data, path]);
 
   const relatedReports = useMemo(
     () => (reports.data ?? EMPTY_LIST).filter((r) => r.obstacleId),
@@ -186,18 +228,25 @@ export function NavigationPage() {
           <Card className="overflow-hidden">
             <div className="h-[420px] sm:h-[520px]">
               <TownshipMap
-                layers={{ routes: true, issues: false, hazards: false, stations: false }}
+                layers={{ routes: true, issues: false, hazards: showHazards, stations: false }}
                 obstacles={obstacles.data ?? EMPTY_LIST}
                 routePath={path}
                 routeColor={activeRoute ? STRATEGY_COLORS[activeRoute.strategy] : '#176B5B'}
                 reports={[]}
-                hazards={[]}
+                hazards={hazards.data ?? EMPTY_LIST}
                 stations={[]}
                 onSelectObstacle={(o) =>
                   toast({
                     kind: 'info',
                     title: o.title,
                     description: `${o.description} — this obstacle reduces the accessibility score of the affected segment.`,
+                  })
+                }
+                onSelectHazard={(h) =>
+                  toast({
+                    kind: 'warning',
+                    title: h.title,
+                    description: `${h.address} · ${h.severity} severity. Open the Safety Monitor for the full report.`,
                   })
                 }
               />
@@ -215,6 +264,23 @@ export function NavigationPage() {
                 <span className="h-2 w-2 rounded-sm bg-primary-600" />
                 Reported obstacle
               </span>
+              <button
+                type="button"
+                onClick={() => setShowHazards((s) => !s)}
+                aria-pressed={showHazards}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold transition',
+                  showHazards
+                    ? 'border-transparent bg-amber-500 text-white'
+                    : 'border-ink-200 bg-white text-ink-500 hover:border-ink-300 dark:border-white/10 dark:bg-white/5 dark:text-ink-400',
+                )}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: showHazards ? '#fff' : '#F59E0B' }}
+                />
+                Safety hazards
+              </button>
               <span className="ml-auto text-[11px] text-ink-400">
                 Maps © OpenStreetMap contributors
               </span>
@@ -245,10 +311,74 @@ export function NavigationPage() {
               <Card>
                 <CardHeader
                   icon={<RouteIcon className="h-5 w-5" />}
-                  title="Segment detail"
-                  subtitle={`${activeRoute.legs.length} segments on the ${STRATEGY_LABELS[activeRoute.strategy].toLowerCase()}`}
+                  title="Route profile & segment details"
+                  subtitle={`${STRATEGY_DESCRIPTIONS[activeRoute.strategy]} · ${activeRoute.legs.length} segments on the ${STRATEGY_LABELS[activeRoute.strategy].toLowerCase()}`}
                 />
-                <CardBody className="space-y-3">
+                <CardBody className="space-y-5">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Meter
+                      label="Accessibility score"
+                      value={activeRoute.accessibilityScore}
+                      suffix="/100"
+                      color="#176B5B"
+                    />
+                    <Meter
+                      label="Comfort score"
+                      value={activeRoute.comfortScore}
+                      suffix="/100"
+                      color="#0EA5E9"
+                    />
+                    <Meter
+                      label="Safety indicator"
+                      value={activeRoute.safetyScore}
+                      suffix="/100"
+                      color="#F59E0B"
+                    />
+                    <Meter
+                      label="Sheltered coverage"
+                      value={shelteredCoverage}
+                      suffix="/100"
+                      color="#7C3AED"
+                    />
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
+                    Each figure is the average of the segment values listed below: accessibility and
+                    safety come from the live segment profile, comfort blends shelter and
+                    accessibility, and sheltered coverage is the mean shelter rating of the segments
+                    you are about to walk.
+                  </p>
+
+                  {activeRoute.warnings.length > 0 ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 dark:border-amber-500/30 dark:bg-amber-500/10">
+                      <p className="flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Route advisories
+                      </p>
+                      <ul className="mt-2 space-y-1">
+                        {activeRoute.warnings.map((w) => (
+                          <li key={w} className="text-xs leading-relaxed text-amber-900/90 dark:text-amber-100/80">
+                            • {w}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 dark:border-emerald-500/30 dark:bg-emerald-500/10">
+                      <p className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-200">
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                        No active advisories on this route
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-emerald-900/80 dark:text-emerald-100/80">
+                        No community-reported obstacles or degraded segments were found along this path.
+                      </p>
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-ink-400">
+                      Segment details
+                    </p>
+                    <div className="space-y-3">
                   {activeRoute.legs.map((leg, i) => {
                     const from = ROUTE_NODES.find((n) => n.id === leg.from);
                     const to = ROUTE_NODES.find((n) => n.id === leg.to);
@@ -279,8 +409,36 @@ export function NavigationPage() {
                             {formatDistance(leg.distanceM)} · accessibility {leg.accessibilityScore}/100 ·
                             ramp {leg.rampCount === 0 ? 'none' : `×${leg.rampCount}`} · {leg.condition} condition
                           </p>
+                          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+                            {[
+                              { label: 'Accessibility', value: leg.accessibilityScore },
+                              { label: 'Shelter', value: leg.shelterScore },
+                              { label: 'Safety', value: leg.safetyScore },
+                              { label: 'Smoothness', value: leg.smoothnessScore },
+                            ].map((m) => (
+                              <div key={m.label}>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-ink-400">
+                                  {m.label}
+                                </p>
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-100 dark:bg-white/10">
+                                    <span
+                                      className="block h-full rounded-full"
+                                      style={{
+                                        width: `${Math.max(2, Math.min(100, m.value))}%`,
+                                        backgroundColor: conditionColor,
+                                      }}
+                                    />
+                                  </span>
+                                  <span className="text-[10px] font-bold text-ink-500 dark:text-ink-400">
+                                    {m.value}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                           {leg.notes.length > 0 ? (
-                            <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-ink-400">
+                            <p className="mt-1.5 line-clamp-2 text-[10px] leading-relaxed text-ink-400">
                               {leg.notes.join(' · ')}
                             </p>
                           ) : null}
@@ -288,88 +446,83 @@ export function NavigationPage() {
                       </div>
                     );
                   })}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-ink-200 bg-ink-50 p-3.5 dark:border-white/10 dark:bg-white/[0.03]">
+                    <p className="flex items-center gap-2 text-xs font-bold text-ink-700 dark:text-ink-200">
+                      <Info className="h-3.5 w-3.5" />
+                      Prototype notice
+                    </p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
+                      Segment accessibility, shelter and safety attributes are simulated prototype data
+                      authored for this demonstration. They are not derived from an audited accessibility
+                      survey and should not be relied on for real navigation decisions.
+                    </p>
+                  </div>
                 </CardBody>
               </Card>
             ) : null}
           </div>
         </div>
 
-        {/* ---------- Active route summary ---------- */}
-        {activeRoute ? (
-          <Card>
-            <CardHeader
-              icon={<Target className="h-5 w-5" />}
-              title="Route profile"
-              subtitle={STRATEGY_DESCRIPTIONS[activeRoute.strategy]}
-            />
-            <CardBody className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Meter
-                  label="Accessibility score"
-                  value={activeRoute.accessibilityScore}
-                  suffix="/100"
-                  color="#176B5B"
-                />
-                <Meter
-                  label="Comfort score"
-                  value={activeRoute.comfortScore}
-                  suffix="/100"
-                  color="#0EA5E9"
-                />
-                <Meter
-                  label="Safety indicator"
-                  value={activeRoute.safetyScore}
-                  suffix="/100"
-                  color="#F59E0B"
-                />
-                <Meter
-                  label="Sheltered coverage"
-                  value={activeRoute.hasShelter ? 78 : 32}
-                  suffix="%"
-                  color="#7C3AED"
-                />
+        {/* ---------- Safety along this route ---------- */}
+        <Card>
+          <CardHeader
+            icon={<TriangleAlert className="h-5 w-5" />}
+            title="Safety along this route"
+            subtitle={
+              routeHazards.length > 0
+                ? `${routeHazards.length} active hazard${routeHazards.length === 1 ? '' : 's'} within 250 m of the plotted path`
+                : 'Active hazards within 250 m of the plotted path'
+            }
+            action={
+              <Link
+                to="/app/safety"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-primary-600 hover:underline dark:text-primary-300"
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                Safety Monitor
+              </Link>
+            }
+          />
+          <CardBody>
+            {routeHazards.length === 0 ? (
+              <EmptyState
+                icon={<ShieldCheck className="h-5 w-5" />}
+                title="No hazards near this route"
+                description="No open safety hazard sits within 250 metres of the path you selected. Hazards further away are listed in the Safety Monitor."
+              />
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {routeHazards.map(({ hazard, distanceM }) => (
+                  <Link
+                    key={hazard.id}
+                    to={`/app/safety/${hazard.id}`}
+                    className="rounded-xl border border-ink-200 p-4 transition hover:border-amber-300 hover:bg-amber-50/40 dark:border-white/10 dark:hover:bg-amber-500/10"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-bold text-ink-900 dark:text-white">{hazard.title}</p>
+                      <Badge
+                        color={hazard.severity === 'critical' ? '#B91C1C' : '#C2410C'}
+                        bg={hazard.severity === 'critical' ? '#FEE2E2' : '#FFEDD5'}
+                      >
+                        {hazard.severity}
+                      </Badge>
+                    </div>
+                    <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-ink-500 dark:text-ink-400">
+                      {hazard.description}
+                    </p>
+                    <p className="mt-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-ink-400">
+                      <MapPin className="h-3 w-3" />
+                      {formatDistance(Math.round(distanceM))} from your path
+                    </p>
+                  </Link>
+                ))}
               </div>
-              <div className="space-y-2.5">
-                {activeRoute.warnings.length > 0 ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 dark:border-amber-500/30 dark:bg-amber-500/10">
-                    <p className="flex items-center gap-2 text-xs font-bold text-amber-800 dark:text-amber-200">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      Route advisories
-                    </p>
-                    <ul className="mt-2 space-y-1">
-                      {activeRoute.warnings.map((w) => (
-                        <li key={w} className="text-xs leading-relaxed text-amber-900/90 dark:text-amber-100/80">
-                          • {w}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-                    <p className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-200">
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                      No active advisories on this route
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-emerald-900/80 dark:text-emerald-100/80">
-                      No community-reported obstacles or degraded segments were found along this path.
-                    </p>
-                  </div>
-                )}
-                <div className="rounded-xl border border-ink-200 bg-ink-50 p-3.5 dark:border-white/10 dark:bg-white/[0.03]">
-                  <p className="flex items-center gap-2 text-xs font-bold text-ink-700 dark:text-ink-200">
-                    <Info className="h-3.5 w-3.5" />
-                    Prototype notice
-                  </p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
-                    Segment accessibility, shelter and safety attributes are simulated prototype data
-                    authored for this demonstration. They are not derived from an audited accessibility
-                    survey and should not be relied on for real navigation decisions.
-                  </p>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
-        ) : null}
+            )}
+          </CardBody>
+        </Card>
 
         {/* ---------- Obstacles ---------- */}
         <Card>

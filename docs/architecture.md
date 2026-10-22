@@ -29,7 +29,7 @@ All shared types live in `src/types/index.ts`.
 
 | Entity | Purpose | Key relationships |
 | --- | --- | --- |
-| `User` | A township account with a `role` and Green Reward points. | Owns reports, activities, transactions. |
+| `User` | A township account with a `role` and Green Reward points, plus an optional saved `mobilityProfile`. | Owns reports, activities, transactions. |
 | `Report` | A FixMyTown community issue. | Optional `obstacleId`, `safetyHazardId`, `maintenanceTaskId`. |
 | `AccessibilityObstacle` | An AccessAble walkway defect on a route edge. | `edgeId`, optional `reportId`. |
 | `SafetyHazard` | A SafeSpot hazard with type, severity and lighting status. | Optional `reportId`. |
@@ -37,7 +37,7 @@ All shared types live in `src/types/index.ts`.
 | `RecyclingActivity` | A resident's recycling submission. | `userId`, `stationId`, verification status. |
 | `RewardTransaction` | An immutable points ledger entry. | `userId`, optional `activityId`. |
 | `MaintenanceTask` | A unit of field work. | `teamId`, optional `reportId`. |
-| `AppNotification` | An in-app notification for a user. | `userId`, optional `reportId`/`taskId`. |
+| `AppNotification` | An in-app notification for a user, or a township-wide notice when `scope: 'township'` (stored once for the reserved recipient `township`). | `userId`, optional `scope`/`reportId`/`taskId`. |
 
 Roles are `resident`, `maintenance`, `operator` and `admin`. The role decides which
 navigation sections render, which routes are reachable and what the data layer allows.
@@ -141,11 +141,12 @@ underlying records, so no figure is hardcoded:
 | `recyclingTrend` | Verified kilograms and points per month. |
 | `computeNeighbourhoodRisks` | Zone risk score from hazards, open reports and accessibility issues. |
 | `buildLeaderboard` | Top recyclers ranked by verified kilograms. |
-| `buildActivityFeed` | Merged, timestamped feed across reports, tasks, hazards and recycling. |
+| `hazardTrend` | Open hazards per month, used by the overview trend. |
 | `accessibilityConditionStats` | Share of the walkway network in each condition. |
 
-All accessibility, safety-risk and environmental-impact figures are prototype estimates and
-are labelled as such in the interface.
+Accessibility and safety-risk figures are prototype estimates and are labelled as such in the
+interface. Resident-facing recycling figures are measured from operator-verified submissions;
+environmental-impact estimates remain confined to the admin workspace.
 
 ---
 

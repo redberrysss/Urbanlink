@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { CommandPalette } from './CommandPalette';
+import { BottomNav } from './BottomNav';
 import { cn } from '@/utils/cn';
 
 export function AppShell() {
@@ -50,7 +51,7 @@ export function AppShell() {
         )}
       >
         <Topbar onOpenMenu={() => setMobileOpen(true)} onOpenSearch={() => setSearchOpen(true)} />
-        <main className="min-h-[calc(100vh-4rem)]">
+        <main className="min-h-[calc(100vh-4rem)] pb-16 md:pb-0">
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}
@@ -64,6 +65,8 @@ export function AppShell() {
           </AnimatePresence>
         </main>
       </div>
+
+      <BottomNav />
 
       <CommandPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>

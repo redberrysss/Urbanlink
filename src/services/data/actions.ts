@@ -13,10 +13,14 @@ import type {
   User,
 } from '@/types';
 import type { Repository } from './types';
-import { uid, reportReference } from '@/utils/constants';
 import { computePriority, daysSince } from '@/services/analytics/priority';
 import { findPotentialDuplicates } from '@/services/analytics/duplicates';
-import { MATERIAL_META } from '@/utils/constants';
+import {
+  MATERIAL_META,
+  TOWNSHIP_NOTICE_RECIPIENT,
+  reportReference,
+  uid,
+} from '@/utils/constants';
 import { demoPhoto } from '@/utils/placeholderImage';
 
 import { EMPTY_LIST } from '@/utils/empty';
@@ -335,26 +339,97 @@ export async function changeReportStatus(
     }
   }
 
-  /* ---- Notify the resident ---- */
-  const notification: AppNotification = {
-    id: uid('nt'),
-    userId: report.reportedBy,
-    title:
-      input.status === 'resolved'
-        ? 'Report resolved'
-        : input.status === 'assigned'
-          ? 'Report assigned to a team'
-          : `Report ${input.status.replace('_', ' ')}`,
-    body: `${report.reference} — ${report.title}. ${input.note ?? ''}`.trim(),
-    type: input.status === 'resolved' ? 'success' : 'info',
-    at: now,
-    read: false,
-    reportId: report.id,
-    link: `/app/reports/${report.id}`,
-  };
-  await repo.createNotification(notification);
+  /* ---- Notify the resident who reported it and anyone who supported it ---- */
+  const recipients = new Set([report.reportedBy, ...report.supporters]);
+  for (const recipient of recipients) {
+    const notification: AppNotification = {
+      id: uid('nt'),
+      userId: recipient,
+      title:
+        input.status === 'resolved'
+          ? 'Report resolved'
+          : input.status === 'assigned'
+            ? 'Report assigned to a team'
+            : `Report ${input.status.replace('_', ' ')}`,
+      body: `${report.reference} — ${report.title}. ${input.note ?? ''}`.trim(),
+      type: input.status === 'resolved' ? 'success' : 'info',
+      at: now,
+      read: false,
+      reportId: report.id,
+      link: `/app/reports/${report.id}`,
+    };
+    await repo.createNotification(notification);
+  }
 
   return { ...report, status: input.status, timeline };
+}
+
+/**
+ * A resident who believes a resolved report is not actually fixed files a
+ * review request. This reopens the workflow (status back to under review),
+ * records it on the shared timeline and notifies management — it does not
+ * merely change the displayed status.
+ */
+export async function requestReportReview(
+  repo: Repository,
+  actor: User,
+  input: { reportId: string; reason: string },
+): Promise<Report> {
+  const reports = await repo.listReports();
+  const report = reports.find((r) => r.id === input.reportId);
+  if (!report) throw new Error('Report not found.');
+
+  const now = new Date().toISOString();
+  const timeline = [
+    ...report.timeline,
+    {
+      id: uid('tl'),
+      at: now,
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      type: 'review' as Report['timeline'][number]['type'],
+      status: 'under_review' as ReportStatus,
+      note:
+        input.reason.trim() ||
+        'The reporter says the problem still exists and requested another review.',
+    },
+  ];
+
+  await repo.updateReport(report.id, {
+    status: 'under_review',
+    updatedAt: now,
+    resolvedAt: undefined,
+    reopenedAt: now,
+    timeline,
+  });
+
+  /* Reopen the linked maintenance task so crews can reassess. */
+  if (report.taskId) {
+    const tasks = await repo.listTasks();
+    const task = tasks.find((t) => t.id === report.taskId);
+    if (task && task.status === 'completed') {
+      await repo.updateTask(task.id, { status: 'in_progress', completedAt: undefined });
+    }
+  }
+
+  /* Notify management so the reopened issue is picked up again. */
+  const staff = await repo.listUsers();
+  for (const member of staff.filter((u) => u.role === 'admin' || u.role === 'maintenance')) {
+    await repo.createNotification({
+      id: uid('nt'),
+      userId: member.id,
+      title: 'Report reopened — problem still exists',
+      body: `${report.reference} — ${report.title}. ${input.reason.trim()}`,
+      type: 'warning',
+      at: now,
+      read: false,
+      reportId: report.id,
+      link: `/app/reports/${report.id}`,
+    });
+  }
+
+  return { ...report, status: 'under_review', timeline };
 }
 
 export async function supportReport(
@@ -568,7 +643,69 @@ export async function addTaskEvidence(
         },
       ],
     });
+
+    /* ---- Notify the resident who reported it (and anyone who supported it) ---- */
+    const recipients = new Set([report.reportedBy, ...report.supporters]);
+    for (const recipient of recipients) {
+      const notification: AppNotification = {
+        id: uid('nt'),
+        userId: recipient,
+        title:
+          input.kind === 'completion'
+            ? 'Repair work completed'
+            : 'Maintenance update',
+        body: `${report.reference} — ${report.title}. ${input.note}`.trim(),
+        type: input.kind === 'completion' ? 'success' : 'info',
+        at: now,
+        read: false,
+        reportId: report.id,
+        link: `/app/reports/${report.id}`,
+      };
+      await repo.createNotification(notification);
+    }
   }
 
   return { ...task, status: nextStatus, evidence: [...task.evidence, evidence] };
+}
+
+/* ------------------------------------------------------------------ *
+ * Township announcements
+ * ------------------------------------------------------------------ */
+
+export interface BroadcastTownUpdateInput {
+  title: string;
+  body: string;
+  type: Extract<AppNotification['type'], 'info' | 'warning'>;
+  link?: string;
+}
+
+/**
+ * Broadcasts one township-wide notice. The notice is stored once with the
+ * reserved `township` recipient id, so every resident reads the same record
+ * instead of a per-resident copy, and residents can never read each other's
+ * personal notifications.
+ */
+export async function broadcastTownUpdate(
+  repo: Repository,
+  actor: User,
+  input: BroadcastTownUpdateInput,
+): Promise<AppNotification> {
+  if (actor.role !== 'admin') {
+    throw new Error('Only administrators can broadcast a township update.');
+  }
+
+  const notice: AppNotification = {
+    id: uid('nt'),
+    userId: TOWNSHIP_NOTICE_RECIPIENT,
+    scope: 'township',
+    title: input.title.trim(),
+    body: input.body.trim(),
+    type: input.type,
+    at: new Date().toISOString(),
+    read: false,
+    ...(input.link ? { link: input.link } : {}),
+  };
+
+  await repo.createNotification(notice);
+  return notice;
 }

@@ -34,37 +34,51 @@ The header collapses into a slide-down menu below `md` and carries a light/dark 
 ## 2. Resident
 
 Sign in with **resident@townsync.demo** (or use the one-click demo button). You land on the
-overview.
+resident **Home**, which is built around five destinations in the sidebar and the mobile
+bottom bar: Home, Navigate, Reports, Safety and Recycling. Profile and Settings are reached
+from the account menu (top-right).
 
-1. **Overview** — township stat cards, the live map with layer switches, the activity feed
-   and the submission/resolution trend chart.
-2. **Smart Navigation** → *Smart Navigation*
-   - Pick a destination and a mobility profile (standard, wheelchair, stroller, visually
-     impaired, elderly).
+1. **Home** — four quick actions (Plan a route, Report an issue, Check nearby hazards,
+   Recycle), your latest reports with plain-language status labels, important local alerts,
+   a compact recycling summary (points and things awaiting verification) and neighbourhood
+   updates. The wordmark returns here from anywhere in the workspace. The fuller township
+   overview still lives at *Overview*.
+2. **Navigate** → *Navigate*
+   - Pick a start and destination (roadside landmarks or route nodes) and a mobility profile
+     (wheelchair user, older adult, parent with stroller, temporary limitation, general
+     pedestrian). Your profile choice is remembered the next time you open the navigator.
    - Compare the three strategies (fastest / balanced / accessible).
    - Select a route and read the segment-by-segment breakdown, the advisories and the
      accessible features encountered along the way.
-   - Change the profile and watch the accessible route move off the obstructed segment.
-3. **Community Reports** → *Community Reports*
-   - Filter by status and category, search by reference.
-   - Open a report to see its timeline, priority score, duplicate candidates and the linked
-     maintenance task.
-4. **Raise a report** → *New Report*
-   - Drop a pin on the map, pick a category, add a description and upload a photo.
-   - Watch the live priority preview and the duplicate warnings.
+   - Turn on *Safety hazards* to see the hazard layer and the hazards along the route.
+3. **Reports** → *Reports*
+   - Opens on **My reports**; switch to **Nearby reports** to see what others have raised and
+     support existing issues.
+   - Filter by status and category, search by title, address or reference.
+4. **Raise a report** → *Report an issue*
+   - Pick a category, add a description, drop a pin and answer the two impact questions
+     (does it block the walkway; could it cause an injury?). A title is suggested from the
+     category and location.
+   - The draft is saved automatically, so a failed submit or a reload keeps your details.
    - Submit and confirm the reference number.
-5. **Safety Map** → *Safety Map*
-   - Toggle hazard types, open a hazard for severity, lighting status and advisory.
-   - Switch to the zone risk panel to see neighbourhood risk scores.
-6. **Recycling Hub** → *Recycling Hub*
-   - Find a station by material or search, check capacity and accepted materials.
+5. **Safety** → *Safety*
+   - Browse the *Alerts list*, filter by state and open an alert for severity, lighting status
+     and advisory. The interactive map lives in Navigate — *Nearby safety alerts* links there
+     with the hazard layer already on.
+6. **Recycling** → *Recycling*
+   - Read *Community impact* (verified waste only) and find a station by material or search.
    - Log a submission (material + weight) and see it appear as *pending verification*.
-7. **My Activities** → *My Activities*
-   - Switch between *Activities*, *Rewards* and *Achievements*.
-   - Watch the leaderboard and the points ledger.
-8. **Notifications, Profile and Settings**
-   - Read and mark notifications as read.
-   - Edit the profile, switch theme, change the map default layer, reset demo data.
+7. **My submissions & rewards** → *Recycling → My submissions & rewards*
+   - Switch between *My submissions*, *Rewards* and *Achievements*.
+   - Only your own records appear here; other residents' weights stay private.
+8. **Notifications** → *Notifications*
+   - *Your updates* follows your reports and rewards; *Town updates* carries broadcasts that
+     apply to everyone. Marking all read only clears your own updates.
+9. **Profile and Settings** — reachable from the account menu.
+   - Profile edits your name, phone and block, sets your mobility preference and notification
+     preferences, and links straight to *My reports* and *Rewards*.
+   - Settings switches theme, refreshes data or resets the demo data.
+
 
 ---
 
@@ -94,7 +108,7 @@ Sign in with **operator@townsync.demo**. You land on the verification queue.
 2. **Check the effect**
    - The resident's points and the reward ledger are updated.
    - The station totals increase.
-   - The leaderboard in the Recycling Hub reorders.
+   - The leaderboard in *Recycling Management* reorders.
    - Achievements are re-evaluated.
 3. **Recycling Hub** → station directory — check the updated station capacity figures.
 
@@ -114,12 +128,16 @@ Sign in with **admin@townsync.demo**. You land on the management dashboard.
 5. **Safety Monitoring** — hazard register, lighting status, resolution performance and
    neighbourhood risk breakdown.
 6. **Recycling Management** — station utilisation, pending submissions, verification
-   throughput and monthly tonnage.
+   throughput, monthly tonnage, material mix, environmental-impact estimates and the
+   leading-recyclers board.
 7. **Users** — registered users, roles, blocks, contribution counts and points circulation.
    Filter by role or search by name, email or block.
 8. **Reports & Analytics** — submission trend, category split, resolution rate per category,
    time-to-resolution distribution, priority mix and status overview. Use the category filter
    to scope every chart on the page.
+9. **Town updates** — open *Notifications* and use *Broadcast town update* to publish one
+   notice (title, message, type, optional link) to every resident. It is stored once and
+   appears in each resident's notification feed and overview.
 
 ---
 
@@ -141,9 +159,10 @@ npm run build
 npm run test:e2e
 ```
 
-This serves the production bundle and drives headless Chrome through two suites: every route
-of all four roles, and the full report → triage → task → resolution → points chain. A green
-run means the demo path in this guide is intact.
+This serves the production bundle and drives headless Chrome through three suites: every
+route of all four roles, the full report → triage → task → resolution → points chain, and the
+re-architecture regression checks (navigation, notifications, recycling privacy, responsive
+layout). A green run means the demo path in this guide is intact.
 
 ---
 

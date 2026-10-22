@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -7,10 +7,10 @@ import {
   CheckCircle2,
   Clock,
   Lightbulb,
+  Map as MapIcon,
   MapPin,
   ShieldAlert,
   ShieldCheck,
-  TrendingDown,
   Waves,
   Zap,
 } from 'lucide-react';
@@ -21,7 +21,6 @@ import { Button } from '@/components/common/Button';
 import { SegmentedControl } from '@/components/common/SegmentedControl';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Meter } from '@/components/common/Progress';
-import { TownshipMap } from '@/components/maps/TownshipMap';
 import { useTownshipData } from '@/contexts/TownshipDataContext';
 import { computeNeighbourhoodRisks } from '@/services/analytics/aggregations';
 import {
@@ -45,7 +44,6 @@ const HAZARD_ICONS: Record<HazardType, typeof ShieldAlert> = {
 export function SafetyPage() {
   const { hazards, reports, obstacles } = useTownshipData();
   const { hazardId } = useParams<{ hazardId: string }>();
-  const navigate = useNavigate();
   const [filter, setFilter] = useState<'active' | 'monitoring' | 'resolved' | 'all'>('active');
 
   const all = hazards.data ?? EMPTY_LIST;
@@ -87,14 +85,11 @@ export function SafetyPage() {
     [all],
   );
 
-  const mapHazards = selected ? [selected] : filtered;
-
   return (
     <div>
       <PageHeader
-        eyebrow="SafeSpot · Neighbourhood Safety Monitor"
-        title="Safety monitor"
-        description="Live hazard register with prototype neighbourhood risk scoring. SafeSpot never stores its own copy of an issue — every hazard links back to the original community report."
+        title="Nearby safety alerts"
+        description="Active alerts in your area by default. Use List or Map views. Resolved alerts can be shown with the filter below."
         actions={
           <Link to="/app/reports/new">
             <Button icon={<ShieldAlert className="h-4 w-4" />}>Report a hazard</Button>
@@ -203,12 +198,11 @@ export function SafetyPage() {
         ) : null}
 
         {/* Stats */}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-4">
           {[
             { label: 'Active hazards', value: stats.active, color: '#F0330F', icon: AlertTriangle },
             { label: 'Monitoring', value: stats.monitoring, color: '#F59E0B', icon: Clock },
             { label: 'Resolved', value: stats.resolved, color: '#047857', icon: CheckCircle2 },
-            { label: 'Average risk', value: stats.avgRisk, color: '#7C3AED', icon: TrendingDown },
           ].map((s) => {
             const Icon = s.icon;
             return (
@@ -238,7 +232,7 @@ export function SafetyPage() {
             <Card>
               <CardHeader
                 icon={<ShieldCheck className="h-5 w-5" />}
-                title="Hazard register"
+                title="Alerts list"
                 subtitle={`${filtered.length} hazards shown`}
                 action={
                   <SegmentedControl
@@ -303,26 +297,40 @@ export function SafetyPage() {
             </Card>
           </div>
 
-          {/* Map + zones */}
+          {/* Map moved to Smart Navigation */}
           <div className="space-y-6">
-            <Card className="overflow-hidden">
-              <div className="h-[380px]">
-                <TownshipMap
-                  layers={{ routes: false, issues: false, hazards: true, stations: false }}
-                  reports={[]}
-                  obstacles={[]}
-                  hazards={mapHazards}
-                  stations={[]}
-                  onSelectHazard={(h) => navigate(`/app/safety/${h.id}`)}
-                />
-              </div>
+            <Card>
+              <CardBody className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+                    <MapIcon className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-ink-900 dark:text-white">
+                      The hazard map now lives in Smart Navigation
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-ink-500 dark:text-ink-400">
+                      Safety hazards are drawn on the same map you use to plan a route, so you can see
+                      hazards near your path before you set off. Open Smart Navigation and the
+                      “Safety hazards” layer is switched on for you.
+                    </p>
+                    <Link
+                      to="/app/navigation?hazards=1"
+                      className="btn-secondary mt-3 inline-flex"
+                    >
+                      <MapIcon className="h-4 w-4" />
+                      View hazards on the map
+                    </Link>
+                  </div>
+                </div>
+              </CardBody>
             </Card>
 
             <Card>
               <CardHeader
-                icon={<ShieldCheck className="h-5 w-5" />}
-                title="Neighbourhood risk zones"
-                subtitle="Prototype risk aggregation per zone"
+                icon={<MapPin className="h-5 w-5" />}
+                title="Area overview"
+                subtitle="Active hazards by area"
               />
               <CardBody className="space-y-4">
                 {risks.map((z) => (
@@ -349,6 +357,9 @@ export function SafetyPage() {
                     </div>
                     <p className="mt-1 text-[10px] leading-relaxed text-ink-400">
                       {z.factors.join(' · ')}
+                    </p>
+                    <p className="mt-1 text-[10px] text-ink-400">
+                      {z.hazardCount} hazards · {z.openReports} open reports
                     </p>
                   </div>
                 ))}

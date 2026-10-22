@@ -22,6 +22,7 @@ import type {
   User,
 } from '@/types';
 import type { Repository } from '../data/types';
+import { TOWNSHIP_NOTICE_RECIPIENT } from '@/utils/constants';
 import { getFirestoreDb } from './client';
 
 const COLLECTIONS = {
@@ -74,9 +75,10 @@ export function createFirebaseRepository(db: Firestore = getFirestoreDb()): Repo
     listTransactions: () => readAll<RewardTransaction>(COLLECTIONS.transactions),
     listTasks: () => readAll<MaintenanceTask>(COLLECTIONS.tasks),
     async listNotifications(userId: string) {
+      // Personal notifications plus township-wide notices broadcast to everyone.
       const q = query(
         collection(db, COLLECTIONS.notifications),
-        where('userId', '==', userId),
+        where('userId', 'in', [userId, TOWNSHIP_NOTICE_RECIPIENT]),
       );
       const snap = await getDocs(q);
       return snap.docs.map(

@@ -1,37 +1,45 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import {
-  Accessibility,
-  AlertTriangle,
-  CheckCircle2,
-  Copy,
-  MapPin,
-  ShieldAlert,
-  Sparkles,
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { AlertTriangle, CheckCircle2, Copy, Crosshair, MapPin, Plus } from 'lucide-react';
 import { PageBody, PageHeader } from '@/components/common/PageHeader';
 import { Card, CardBody, CardHeader } from '@/components/common/Card';
 import { Button } from '@/components/common/Button';
 import { ImageUploader, type UploadedImage } from '@/components/common/ImageUploader';
 import { Badge } from '@/components/common/Badge';
-import { Meter } from '@/components/common/Progress';
 import { TownshipMap } from '@/components/maps/TownshipMap';
 import { useTownshipData } from '@/contexts/TownshipDataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/components/common/Toast';
-import { TOWNSHIP } from '@/data/township';
+import { TOWNSHIP, PLACES } from '@/data/township';
 import { findPotentialDuplicates } from '@/services/analytics/duplicates';
-import { computePriority } from '@/services/analytics/priority';
-import {
-  REPORT_CATEGORY_META,
-  SEVERITY_META,
-  formatDate,
-} from '@/utils/constants';
+import { REPORT_CATEGORY_META } from '@/utils/constants';
 import type { ReportCategory, ReportSeverity } from '@/types';
 import { cn } from '@/utils/cn';
-
 import { EMPTY_LIST } from '@/utils/empty';
-const SEVERITIES: ReportSeverity[] = ['low', 'medium', 'high', 'critical'];
+
+const DRAFT_KEY = 'townsync.report.draft.v1';
+type YesNo = 'yes' | 'no' | 'unsure';
+
+interface Draft {
+  title: string;
+  description: string;
+  category: ReportCategory;
+  address: string;
+  position: { lat: number; lng: number } | null;
+  blocksPath: YesNo | null;
+  injuryRisk: YesNo | null;
+  photo: UploadedImage | null;
+}
+
+function loadDraft(): Partial<Draft> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as Partial<Draft>) : {};
+  } catch {
+    return {};
+  }
+}
 
 export function NewReportPage() {
   const navigate = useNavigate();
@@ -39,58 +47,104 @@ export function NewReportPage() {
   const { toast } = useToast();
   const { reports, createReport } = useTownshipData();
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<ReportCategory>('damaged_pavement');
-  const [severity, setSeverity] = useState<ReportSeverity>('medium');
-  const [address, setAddress] = useState('');
-  const [affectedResidents, setAffectedResidents] = useState(20);
-  const [affectsAccessibility, setAffectsAccessibility] = useState(false);
-  const [isSafetyHazard, setIsSafetyHazard] = useState(false);
-  const [photo, setPhoto] = useState<UploadedImage | null>(null);
-  const [position, setPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const [picking, setPicking] = useState(true);
+  const draft = useRef(loadDraft()).current;
+
+  const [title, setTitle] = useState(draft.title ?? '');
+  const [titleEdited, setTitleEdited] = useState(Boolean(draft.title));
+  const [description, setDescription] = useState(draft.description ?? '');
+  const [category, setCategory] = useState<ReportCategory>(draft.category ?? 'damaged_pavement');
+  const [address, setAddress] = useState(draft.address ?? '');
+  const [position, setPosition] = useState<{ lat: number; lng: number } | null>(
+    draft.position ?? null,
+  );
+  const [blocksPath, setBlocksPath] = useState<YesNo | null>(draft.blocksPath ?? null);
+  const [injuryRisk, setInjuryRisk] = useState<YesNo | null>(draft.injuryRisk ?? null);
+  const [photo, setPhoto] = useState<UploadedImage | null>(draft.photo ?? null);
+  const [locating, setLocating] = useState(false);
+  const [picking, setPicking] = useState(!draft.position);
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState(false);
 
-  const duplicates = useMemo(() => {
-    if (!title.trim() || !position) return [];
-    return findPotentialDuplicates(
-      {
-        category,
-        title,
+  const placeOptions = useMemo(() => PLACES, []);
+
+  /* Suggested title from category + location (never invents location details). */
+  const suggestedTitle = useMemo(() => {
+    const cat = REPORT_CATEGORY_META[category].label.replace(/ Problems?$/, '').replace(/s$/, '');
+    const where = address.trim();
+    return where ? `${cat} near ${where}` : cat;
+  }, [category, address]);
+
+  const effectiveTitle = titleEdited ? title : suggestedTitle;
+
+  /* Persist the draft so recovering from a failure or navigating back keeps it. */
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const payload: Draft = {
+        title: titleEdited ? title : '',
         description,
+        category,
+        address,
         position,
-      },
+        blocksPath,
+        injuryRisk,
+        photo,
+      };
+      window.localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [title, titleEdited, description, category, address, position, blocksPath, injuryRisk, photo]);
+
+  const duplicates = useMemo(() => {
+    if (!position || !description.trim()) return [];
+    return findPotentialDuplicates(
+      { category, title: effectiveTitle, description, position },
       reports.data ?? EMPTY_LIST,
     );
-  }, [title, description, category, position, reports.data]);
-
-  const priority = useMemo(
-    () =>
-      computePriority({
-        category,
-        severity,
-        affectedResidents,
-        isSafetyRelated: isSafetyHazard,
-        daysSinceSubmission: 0,
-        duplicateCount: duplicates.length,
-        supporterCount: 0,
-      }),
-    [category, severity, affectedResidents, isSafetyHazard, duplicates.length],
-  );
+  }, [effectiveTitle, description, category, position, reports.data]);
 
   const errors = {
-    title: !title.trim() ? 'Give the issue a short, specific title.' : undefined,
     description:
       description.trim().length < 20
         ? 'Describe the problem in at least 20 characters so crews know what to expect.'
         : undefined,
     address: !address.trim() ? 'Add the nearest street or landmark.' : undefined,
-    position: !position ? 'Drop a pin on the map to mark the exact location.' : undefined,
+    position: !position ? 'Drop a pin on the map or use your location.' : undefined,
   };
 
   const isValid = !Object.values(errors).some(Boolean);
+
+  const useMyLocation = () => {
+    if (!('geolocation' in navigator)) {
+      toast({
+        kind: 'error',
+        title: 'Location unavailable',
+        description: 'This device does not support geolocation. Drop a pin instead.',
+      });
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setPicking(false);
+        setLocating(false);
+      },
+      () => {
+        setLocating(false);
+        toast({
+          kind: 'error',
+          title: 'Could not get your location',
+          description: 'Drop a pin on the map or search for a place instead.',
+        });
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
+
+  const severityFromAnswers: ReportSeverity =
+    injuryRisk === 'yes' ? 'critical' : blocksPath === 'yes' ? 'high' : 'medium';
+  const affectsAccessibility = blocksPath === 'yes';
+  const isSafetyHazard = injuryRisk === 'yes';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,43 +154,42 @@ export function NewReportPage() {
     setSubmitting(true);
     try {
       const created = await createReport({
-        title: title.trim(),
+        title: effectiveTitle.trim(),
         description: description.trim(),
         category,
-        severity,
+        severity: severityFromAnswers,
         position,
         address: address.trim(),
         photoUrl: photo?.dataUrl,
-        affectedResidents,
+        affectedResidents: 0,
         affectsAccessibility,
         isSafetyHazard,
       });
+      window.localStorage.removeItem(DRAFT_KEY);
       toast({
         kind: 'success',
         title: `Report ${created.reference} submitted`,
-        description:
-          'It is now visible to the township office and any linked modules have been updated.',
+        description: 'You will be notified as its status changes.',
       });
       navigate(`/app/reports/${created.id}`);
     } catch (err) {
       toast({
         kind: 'error',
         title: 'Could not submit the report',
-        description: err instanceof Error ? err.message : 'Unexpected error.',
+        description:
+          (err instanceof Error ? err.message : 'Unexpected error.') +
+          ' Your details are kept — try again.',
       });
     } finally {
       setSubmitting(false);
     }
   };
 
-  const meta = REPORT_CATEGORY_META[category];
-
   return (
     <div>
       <PageHeader
-        eyebrow="FixMyTown · New Community Report"
         title="Report an issue"
-        description="One submission reaches the township office, the route planner and the safety monitor at the same time — so the problem is fixed once and seen everywhere."
+        description="Four quick steps: a photo, the location, a category and a description."
       />
 
       <PageBody>
@@ -146,23 +199,41 @@ export function NewReportPage() {
               <CardHeader
                 icon={<MapPin className="h-5 w-5" />}
                 title="What is the problem?"
-                subtitle="Be specific — precise descriptions get resolved faster."
+                subtitle="Start with a category and a short description."
               />
               <CardBody className="space-y-5">
                 <div>
-                  <label htmlFor="report-title" className="label">
-                    Title
-                  </label>
-                  <input
-                    id="report-title"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="e.g. Broken paving slab outside Taman Melati block"
-                    className={cn('input', touched && errors.title && 'border-rose-400')}
-                  />
-                  {touched && errors.title ? (
-                    <p className="mt-1 text-xs font-medium text-rose-600">{errors.title}</p>
-                  ) : null}
+                  <span className="label">Category</span>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {(Object.keys(REPORT_CATEGORY_META) as ReportCategory[]).map((c) => {
+                      const m = REPORT_CATEGORY_META[c];
+                      const active = category === c;
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setCategory(c)}
+                          aria-pressed={active}
+                          className={cn(
+                            'flex items-start gap-2 rounded-xl border p-3 text-left transition',
+                            active
+                              ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10'
+                              : 'border-ink-200 hover:border-primary-300 dark:border-white/10',
+                          )}
+                        >
+                          <span
+                            className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: m.color }}
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-xs font-bold text-ink-800 dark:text-ink-100">
+                              {m.label}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div>
@@ -174,7 +245,7 @@ export function NewReportPage() {
                     rows={4}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Describe what is wrong, how it affects people and anything a crew should bring…"
+                    placeholder="Describe what is wrong and anything a crew should bring…"
                     className={cn('input', touched && errors.description && 'border-rose-400')}
                   />
                   <div className="mt-1 flex items-center justify-between">
@@ -183,138 +254,61 @@ export function NewReportPage() {
                     ) : (
                       <span />
                     )}
-                    <span className="text-[11px] text-ink-400">{description.trim().length} characters</span>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <span className="label">Category</span>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {(
-                        Object.keys(REPORT_CATEGORY_META) as ReportCategory[]
-                      ).map((c) => {
-                        const m = REPORT_CATEGORY_META[c];
-                        const active = category === c;
-                        return (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => setCategory(c)}
-                            aria-pressed={active}
-                            className={cn(
-                              'flex items-start gap-2 rounded-xl border p-3 text-left transition',
-                              active
-                                ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10'
-                                : 'border-ink-200 hover:border-primary-300 dark:border-white/10',
-                            )}
-                          >
-                            <span
-                              className="mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full"
-                              style={{ backgroundColor: m.color }}
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-xs font-bold text-ink-800 dark:text-ink-100">
-                                {m.label}
-                              </span>
-                              <span className="mt-0.5 block text-[10px] leading-snug text-ink-500 dark:text-ink-400">
-                                {m.description}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <span className="label">Severity</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {SEVERITIES.map((s) => {
-                          const m = SEVERITY_META[s];
-                          const active = severity === s;
-                          return (
-                            <button
-                              key={s}
-                              type="button"
-                              onClick={() => setSeverity(s)}
-                              aria-pressed={active}
-                              className="rounded-lg border px-3 py-1.5 text-xs font-bold transition"
-                              style={
-                                active
-                                  ? { backgroundColor: m.bg, borderColor: m.color, color: m.color }
-                                  : undefined
-                              }
-                            >
-                              {m.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label htmlFor="affected" className="label">
-                        Residents affected (estimate)
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <input
-                          id="affected"
-                          type="range"
-                          min={1}
-                          max={500}
-                          step={1}
-                          value={affectedResidents}
-                          onChange={(e) => setAffectedResidents(Number(e.target.value))}
-                          className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-ink-200 accent-primary-600 dark:bg-white/15"
-                        />
-                        <span className="w-16 text-right text-sm font-bold text-ink-900 dark:text-white">
-                          {affectedResidents}
-                        </span>
-                      </div>
-                      <p className="hint">
-                        Used only to prioritise. Higher values raise the automatic priority score.
-                      </p>
-                    </div>
+                    <span className="text-[11px] text-ink-400">
+                      {description.trim().length} characters
+                    </span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="label">Photo evidence (optional)</span>
-                  <ImageUploader
-                    value={photo}
-                    onChange={setPhoto}
-                    label="Add a photo"
-                    hint="JPG or PNG up to 3 MB. Helps crews identify the exact problem."
+                  <label htmlFor="report-title" className="label">
+                    Title
+                  </label>
+                  <input
+                    id="report-title"
+                    value={effectiveTitle}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      setTitleEdited(true);
+                    }}
+                    placeholder={suggestedTitle}
+                    className="input"
                   />
+                  <p className="hint">
+                    Suggested from the category and location. Edit it if you like.
+                  </p>
                 </div>
               </CardBody>
             </Card>
 
             <Card>
               <CardHeader
-                icon={<Sparkles className="h-5 w-5" />}
-                title="Module escalation"
-                subtitle="Tick everything this issue affects — TownSync creates the linked records automatically."
+                icon={<AlertTriangle className="h-5 w-5" />}
+                title="Impact"
+                subtitle="Two quick questions — the township office sets the final priority."
               />
-              <CardBody className="grid gap-3 sm:grid-cols-2">
-                <ToggleCard
-                  active={affectsAccessibility}
-                  onToggle={() => setAffectsAccessibility((v) => !v)}
-                  icon={<Accessibility className="h-4 w-4" />}
-                  color="#176B5B"
-                  title="Blocks accessibility"
-                  body="Adds a route obstacle so every pedestrian route avoids this location."
+              <CardBody className="grid gap-5 sm:grid-cols-2">
+                <YesNoQuestion
+                  label="Does this block the walkway or entrance?"
+                  value={blocksPath}
+                  onChange={setBlocksPath}
                 />
-                <ToggleCard
-                  active={isSafetyHazard}
-                  onToggle={() => setIsSafetyHazard((v) => !v)}
-                  icon={<ShieldAlert className="h-4 w-4" />}
-                  color="#F0330F"
-                  title="Safety hazard"
-                  body="Raises a SafeSpot warning with a neighbourhood risk score for the area."
+                <YesNoQuestion
+                  label="Could this cause an injury?"
+                  value={injuryRisk}
+                  onChange={setInjuryRisk}
                 />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                icon={<MapPin className="h-5 w-5" />}
+                title="Photo"
+                subtitle="Optional, but it helps crews identify the problem."
+              />
+              <CardBody>
+                <ImageUploader value={photo} onChange={setPhoto} label="Add a photo" />
               </CardBody>
             </Card>
           </div>
@@ -324,8 +318,8 @@ export function NewReportPage() {
             <Card className="overflow-hidden">
               <CardHeader
                 icon={<MapPin className="h-5 w-5" />}
-                title="Pin the exact location"
-                subtitle={picking ? 'Click the map to place the pin' : 'Location captured'}
+                title="Location"
+                subtitle={picking ? 'Click the map to place a pin' : 'Location captured'}
                 action={
                   <Button
                     size="sm"
@@ -353,63 +347,48 @@ export function NewReportPage() {
                   zoom={16}
                 />
               </div>
-              <CardBody>
+              <CardBody className="space-y-4">
                 <div>
-                  <label htmlFor="report-address" className="label">
-                    Address or nearest landmark
+                  <label htmlFor="place-search" className="label">
+                    Search a place
                   </label>
                   <input
-                    id="report-address"
+                    id="place-search"
+                    list="place-options"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    placeholder="e.g. Jalan Melati 3, near the playground"
+                    placeholder="e.g. Damai Community Centre"
                     className={cn('input', touched && errors.address && 'border-rose-400')}
                   />
+                  <datalist id="place-options">
+                    {placeOptions.map((p) => (
+                      <option key={p.id} value={p.name} />
+                    ))}
+                  </datalist>
                   {touched && errors.address ? (
                     <p className="mt-1 text-xs font-medium text-rose-600">{errors.address}</p>
                   ) : null}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={useMyLocation}
+                  disabled={locating}
+                  className="btn-secondary w-full"
+                >
+                  <Crosshair className="h-4 w-4" />
+                  {locating ? 'Getting location…' : 'Use my location'}
+                </button>
+
                 {position ? (
-                  <p className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
+                    Pin set at {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
                   </p>
                 ) : touched ? (
-                  <p className="mt-3 flex items-center gap-1.5 text-[11px] font-medium text-rose-600">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-rose-600">
                     <AlertTriangle className="h-3.5 w-3.5" />
                     {errors.position}
-                  </p>
-                ) : null}
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader
-                icon={<Sparkles className="h-5 w-5" />}
-                title="Estimated priority"
-                subtitle="Calculated automatically from severity, impact and category"
-              />
-              <CardBody className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Badge color="#176B5B" bg="#EAF6F3">
-                    {meta.label}
-                  </Badge>
-                  <span className="text-2xl font-extrabold text-ink-900 dark:text-white">
-                    {priority.total}
-                    <span className="ml-1 text-xs font-bold text-ink-400">pts</span>
-                  </span>
-                </div>
-                <Meter label="Safety impact" value={priority.safetyImpact} suffix="/100" color="#F0330F" />
-                <Meter label="Population impact" value={priority.populationImpact} suffix="/100" color="#0EA5E9" />
-                <Meter
-                  label="Accessibility impact"
-                  value={priority.accessibilityImpact}
-                  suffix="/100"
-                  color="#176B5B"
-                />
-                {touched && !isValid ? (
-                  <p className="text-[11px] font-medium text-rose-600">
-                    Complete the required fields to submit.
                   </p>
                 ) : null}
               </CardBody>
@@ -419,16 +398,17 @@ export function NewReportPage() {
               <Card>
                 <CardHeader
                   icon={<Copy className="h-5 w-5" />}
-                  title="Possible duplicates found"
-                  subtitle="You can still submit — the office will merge if appropriate"
+                  title="Already reported nearby"
+                  subtitle="Support an existing report instead of creating a duplicate."
                 />
                 <CardBody className="space-y-2">
                   {duplicates.map((d) => {
                     const match = (reports.data ?? EMPTY_LIST).find((r) => r.id === d.reportId);
                     return (
-                      <div
+                      <Link
                         key={d.reportId}
-                        className="rounded-xl border border-ink-100 p-3 dark:border-white/10"
+                        to={`/app/reports/${d.reportId}`}
+                        className="block rounded-xl border border-ink-100 p-3 transition hover:border-primary-300 dark:border-white/10"
                       >
                         <p className="text-xs font-bold text-ink-800 dark:text-ink-100">
                           {match?.title ?? 'Existing report'}
@@ -437,8 +417,10 @@ export function NewReportPage() {
                           {match?.reference ?? d.reportId} · {Math.round(d.score * 100)}% similar ·{' '}
                           {Math.round(d.distanceM)} m away
                         </p>
-                        <p className="mt-1 text-[10px] text-ink-400">{d.reasons.join(' · ')}</p>
-                      </div>
+                        <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-primary-600 dark:text-primary-300">
+                          <ThumbsUpIcon /> View and support
+                        </p>
+                      </Link>
                     );
                   })}
                 </CardBody>
@@ -446,13 +428,22 @@ export function NewReportPage() {
             ) : null}
 
             <Card>
-              <CardBody>
+              <CardBody className="space-y-3">
+                <Badge color="#176B5B" bg="#EAF6F3">
+                  {REPORT_CATEGORY_META[category].label}
+                </Badge>
+                {touched && !isValid ? (
+                  <p className="text-[11px] font-medium text-rose-600">
+                    Complete the required fields to submit.
+                  </p>
+                ) : null}
                 <Button type="submit" loading={submitting} className="w-full" size="lg">
+                  <Plus className="h-4 w-4" />
                   Submit report
                 </Button>
-                <p className="mt-3 text-[11px] leading-relaxed text-ink-400">
-                  Submitted {formatDate(new Date())} to the Bandar Seri Damai township office. You will
-                  receive notifications at every status change.
+                <p className="text-[11px] leading-relaxed text-ink-400">
+                  Your draft is saved automatically, so you can retry if something goes wrong.
+                  A reference number appears only once the report is confirmed.
                 </p>
               </CardBody>
             </Card>
@@ -463,59 +454,48 @@ export function NewReportPage() {
   );
 }
 
-function ToggleCard({
-  active,
-  onToggle,
-  icon,
-  color,
-  title,
-  body,
+function ThumbsUpIcon() {
+  return <CheckCircle2 className="h-3 w-3" />;
+}
+
+function YesNoQuestion({
+  label,
+  value,
+  onChange,
 }: {
-  active: boolean;
-  onToggle: () => void;
-  icon: React.ReactNode;
-  color: string;
-  title: string;
-  body: string;
+  label: string;
+  value: YesNo | null;
+  onChange: (v: YesNo) => void;
 }) {
+  const options: { id: YesNo; label: string }[] = [
+    { id: 'yes', label: 'Yes' },
+    { id: 'no', label: 'No' },
+    { id: 'unsure', label: 'Not sure' },
+  ];
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={active}
-      className={cn(
-        'flex items-start gap-3 rounded-xl border p-4 text-left transition',
-        active ? 'ring-2' : 'hover:border-primary-300',
-      )}
-      style={
-        active
-          ? { borderColor: color, boxShadow: `0 0 0 2px ${color}33`, backgroundColor: `${color}0D` }
-          : undefined
-      }
-    >
-      <span
-        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white"
-        style={{ backgroundColor: color }}
-      >
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="text-sm font-bold text-ink-900 dark:text-white">{title}</span>
-          <span
-            className={cn(
-              'ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide',
-              active ? 'text-white' : 'bg-ink-100 text-ink-500 dark:bg-white/10 dark:text-ink-400',
-            )}
-            style={active ? { backgroundColor: color } : undefined}
-          >
-            {active ? 'On' : 'Off'}
-          </span>
-        </span>
-        <span className="mt-1 block text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
-          {body}
-        </span>
-      </span>
-    </button>
+    <div>
+      <span className="label">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => {
+          const active = value === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => onChange(o.id)}
+              aria-pressed={active}
+              className={cn(
+                'rounded-lg border px-3 py-1.5 text-xs font-bold transition',
+                active
+                  ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-200'
+                  : 'border-ink-200 text-ink-600 hover:border-primary-300 dark:border-white/10 dark:text-ink-300',
+              )}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

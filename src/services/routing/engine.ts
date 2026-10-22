@@ -280,6 +280,8 @@ function buildLegs(graph: Graph, edgeIds: string[]): RouteLeg[] {
       to: edge.to,
       distanceM: edge.distanceM,
       accessibilityScore: profile.effectiveAccessibility,
+      safetyScore: profile.effectiveSafety,
+      smoothnessScore: profile.effectiveSmoothness,
       obstacleCount: profile.obstacleCount,
       rampCount: edge.rampCount,
       shelterScore: edge.shelterScore,

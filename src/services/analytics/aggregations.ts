@@ -1,7 +1,5 @@
 import type {
   AccessibilityObstacle,
-  ActivityFeedItem,
-  AppNotification,
   MaintenanceTask,
   MaintenanceTeam,
   NeighbourhoodRisk,
@@ -183,6 +181,22 @@ export function accessibilityConditionStats(
   ];
 }
 
+export interface HazardTrendPoint {
+  label: string;
+  reported: number;
+  resolved: number;
+}
+
+/** Hazards reported and cleared per month — the real history behind the counts. */
+export function hazardTrend(hazards: SafetyHazard[], months = 8): HazardTrendPoint[] {
+  const buckets = lastMonths(months);
+  return buckets.map(({ key, label }) => ({
+    label,
+    reported: hazards.filter((h) => monthKey(h.reportedAt) === key).length,
+    resolved: hazards.filter((h) => h.resolvedAt && monthKey(h.resolvedAt) === key).length,
+  }));
+}
+
 export interface RecyclingTrendPoint {
   label: string;
   kg: number;
@@ -313,87 +327,6 @@ export function computeNeighbourhoodRisks(data: TownshipDataBundle): Neighbourho
       factors: factors.length ? factors : ['No active issues detected'],
     };
   });
-}
-
-/* ------------------------------------------------------------------ *
- * Activity feed
- * ------------------------------------------------------------------ */
-
-export function buildActivityFeed(
-  data: TownshipDataBundle,
-  notifications: AppNotification[],
-  limit = 12,
-): ActivityFeedItem[] {
-  const feed: ActivityFeedItem[] = [];
-
-  data.reports.forEach((r) => {
-    feed.push({
-      id: `f_r_${r.id}`,
-      at: r.reportedAt,
-      kind: 'report',
-      title: `New report · ${r.title}`,
-      description: `${r.reportedByName} reported ${r.address.toLowerCase()}`,
-      actor: r.reportedByName,
-      link: `/app/reports/${r.id}`,
-    });
-    r.timeline
-      .filter((t) => t.type !== 'submitted')
-      .forEach((t) => {
-        feed.push({
-          id: `f_t_${t.id}`,
-          at: t.at,
-          kind: t.type === 'assigned' ? 'maintenance' : 'status',
-          title: `${r.reference} · ${t.note.split('.')[0]}`,
-          description: `${t.actorName} updated “${r.title}”`,
-          actor: t.actorName,
-          link: `/app/reports/${r.id}`,
-        });
-      });
-  });
-
-  data.hazards
-    .filter((h) => h.status === 'resolved' && h.resolvedAt)
-    .forEach((h) => {
-      feed.push({
-        id: `f_h_${h.id}`,
-        at: h.resolvedAt!,
-        kind: 'hazard',
-        title: `Safety hazard cleared · ${h.title}`,
-        description: 'The linked maintenance report was verified and the hazard was closed.',
-        link: `/app/safety/${h.id}`,
-      });
-    });
-
-  data.activities
-    .filter((a) => a.status === 'verified')
-    .forEach((a) => {
-      feed.push({
-        id: `f_a_${a.id}`,
-        at: a.verifiedAt ?? a.submittedAt,
-        kind: 'recycling',
-        title: `Recycling verified · ${a.pointsAwarded} points`,
-        description: `${a.userName} recycled ${a.weightKg} kg of ${a.material} at ${a.stationName}`,
-        actor: a.userName,
-        link: '/app/recycling',
-      });
-    });
-
-  notifications
-    .filter((n) => n.type === 'reward')
-    .forEach((n) => {
-      feed.push({
-        id: `f_n_${n.id}`,
-        at: n.at,
-        kind: 'recycling',
-        title: n.title,
-        description: n.body,
-        link: '/app/activities',
-      });
-    });
-
-  return feed
-    .sort((a, b) => (a.at < b.at ? 1 : -1))
-    .slice(0, limit);
 }
 
 /* ------------------------------------------------------------------ *

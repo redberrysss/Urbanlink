@@ -1,63 +1,76 @@
-import { useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Accessibility,
-  Award,
+  Bell,
   ClipboardList,
   Mail,
   MapPin,
+  Phone,
   Recycle,
+  Save,
   Sparkles,
-  ThumbsUp,
   User as UserIcon,
 } from 'lucide-react';
 import { PageBody, PageHeader } from '@/components/common/PageHeader';
 import { Card, CardBody, CardHeader } from '@/components/common/Card';
-import { Badge } from '@/components/common/Badge';
 import { Button } from '@/components/common/Button';
 import { EmptyState } from '@/components/common/EmptyState';
-import { Meter } from '@/components/common/Progress';
-import { useTownshipData } from '@/contexts/TownshipDataContext';
 import { useAuth } from '@/contexts/AuthContext';
-import {
-  PRIORITY_META,
-  REPORT_CATEGORY_META,
-  REPORT_STATUS_META,
-  ROLES_META,
-  formatDate,
-  formatWeight,
-} from '@/utils/constants';
+import { useToast } from '@/components/common/Toast';
+import { MOBILITY_PROFILES } from '@/utils/constants';
+import type { MobilityProfile } from '@/types';
+import { cn } from '@/utils/cn';
 
-import { EMPTY_LIST } from '@/utils/empty';
+const NOTIF_KEY = 'townsync.notification-prefs.v1';
+
+interface NotificationPrefs {
+  reports: boolean;
+  safety: boolean;
+  rewards: boolean;
+  digest: boolean;
+}
+
+const DEFAULT_PREFS: NotificationPrefs = {
+  reports: true,
+  safety: true,
+  rewards: true,
+  digest: false,
+};
+
+function loadPrefs(): NotificationPrefs {
+  if (typeof window === 'undefined') return DEFAULT_PREFS;
+  try {
+    const raw = window.localStorage.getItem(NOTIF_KEY);
+    return raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<NotificationPrefs>) } : DEFAULT_PREFS;
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
+
 export function ProfilePage() {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const { reports, activities } = useTownshipData();
+  const { user, updateProfile } = useAuth();
+  const { toast } = useToast();
 
-  const allReports = reports.data ?? EMPTY_LIST;
-  const allActivities = activities.data ?? EMPTY_LIST;
-
-  const myReports = useMemo(
-    () => allReports.filter((r) => r.reportedBy === user?.id),
-    [allReports, user?.id],
+  const [name, setName] = useState(user?.name ?? '');
+  const [phone, setPhone] = useState(user?.phone ?? '');
+  const [block, setBlock] = useState(user?.block ?? '');
+  const [mobility, setMobility] = useState<MobilityProfile>(
+    user?.mobilityProfile ?? 'general',
   );
-  const supported = useMemo(
-    () => allReports.filter((r) => r.supporters.includes(user?.id ?? '')),
-    [allReports, user?.id],
-  );
-  const myActivities = useMemo(
-    () => allActivities.filter((a) => a.userId === user?.id),
-    [allActivities, user?.id],
-  );
+  const [prefs, setPrefs] = useState<NotificationPrefs>(loadPrefs);
+  const [saving, setSaving] = useState(false);
 
-  const verifiedKg = myActivities
-    .filter((a) => a.status === 'verified')
-    .reduce((s, a) => s + a.weightKg, 0);
+  useEffect(() => {
+    if (!user) return;
+    setName(user.name);
+    setPhone(user.phone ?? '');
+    setBlock(user.block ?? '');
+    setMobility(user.mobilityProfile ?? 'general');
+  }, [user]);
 
-  const resolved = myReports.filter((r) => r.status === 'resolved').length;
-  const resolutionRate = myReports.length
-    ? Math.round((resolved / myReports.length) * 100)
-    : 0;
+  useEffect(() => {
+    window.localStorage.setItem(NOTIF_KEY, JSON.stringify(prefs));
+  }, [prefs]);
 
   if (!user) {
     return (
@@ -71,257 +84,258 @@ export function ProfilePage() {
     );
   }
 
-  const role = ROLES_META[user.role];
+  const points = user.points ?? 0;
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateProfile({
+        name: name.trim() || user.name,
+        phone: phone.trim() || undefined,
+        block: block.trim() || undefined,
+        mobilityProfile: mobility,
+      });
+      toast({
+        kind: 'success',
+        title: 'Profile saved',
+        description: 'Your contact details and mobility preference are up to date.',
+      });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Could not save your profile',
+        description: err instanceof Error ? err.message : 'Unexpected error.',
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div>
       <PageHeader
-        eyebrow="TownSync · Resident Profile"
         title="My profile"
-        description="Your contribution to the township, the issues you have raised and the rewards you have earned."
-        actions={
-          <Link to="/app/settings">
-            <Button variant="secondary">Account settings</Button>
-          </Link>
-        }
+        description="Your contact details, mobility preference and how the township reaches you."
       />
 
       <PageBody className="space-y-6">
-        {/* Identity card */}
-        <Card>
-          <CardBody>
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-              <div className="grid h-20 w-20 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 text-2xl font-extrabold text-white">
-                {user.name
-                  .split(' ')
-                  .slice(0, 2)
-                  .map((p) => p[0])
-                  .join('')}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-xl font-extrabold text-ink-900 dark:text-white">{user.name}</h2>
-                  <Badge color={role.color} bg={role.bg}>
-                    {role.label}
-                  </Badge>
-                </div>
-                <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500 dark:text-ink-400">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Mail className="h-3.5 w-3.5" />
-                    {user.email}
-                  </span>
-                  {user.block ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <MapPin className="h-3.5 w-3.5" />
-                      {user.block}
-                    </span>
-                  ) : null}
-                  <span>Member since {formatDate(user.joinedAt)}</span>
-                </p>
-                <p className="mt-2 text-xs leading-relaxed text-ink-500 dark:text-ink-400">
-                  {role.description}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-center dark:border-emerald-500/25 dark:bg-emerald-500/10">
-                <p className="flex items-center justify-center gap-1.5 text-2xl font-extrabold text-emerald-700 dark:text-emerald-300">
-                  <Sparkles className="h-5 w-5" />
-                  {user.points}
-                </p>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800/70 dark:text-emerald-200/70">
-                  Points balance
-                </p>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
-
-        {/* Contribution stats */}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              label: 'Reports raised',
-              value: String(myReports.length),
-              icon: <ClipboardList className="h-5 w-5" />,
-              color: '#FB5A36',
-            },
-            {
-              label: 'Reports supported',
-              value: String(supported.length),
-              icon: <ThumbsUp className="h-5 w-5" />,
-              color: '#0EA5E9',
-            },
-            {
-              label: 'Resolution rate',
-              value: `${resolutionRate}%`,
-              icon: <Award className="h-5 w-5" />,
-              color: '#047857',
-            },
-            {
-              label: 'Recycled',
-              value: formatWeight(verifiedKg),
-              icon: <Recycle className="h-5 w-5" />,
-              color: '#7C3AED',
-            },
-          ].map((s) => (
-            <Card key={s.label}>
-              <CardBody className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-ink-400">{s.label}</p>
-                  <p className="mt-1 text-2xl font-extrabold text-ink-900 dark:text-white">
-                    {s.value}
-                  </p>
-                </div>
-                <span
-                  className="grid h-10 w-10 place-items-center rounded-xl text-white"
-                  style={{ backgroundColor: s.color }}
-                >
-                  {s.icon}
-                </span>
-              </CardBody>
-            </Card>
-          ))}
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* My reports */}
-          <Card>
-            <CardHeader
-              icon={<ClipboardList className="h-5 w-5" />}
-              title="Reports I raised"
-              subtitle={`${myReports.length} submissions`}
-            />
-            <CardBody className="space-y-2.5">
-              {myReports.length === 0 ? (
-                <EmptyState
-                  icon={<ClipboardList className="h-5 w-5" />}
-                  title="No reports yet"
-                  description="Report an issue to start tracking it here."
-                  actionLabel="Report an issue"
-                  onAction={() => navigate('/app/reports/new')}
-                />
-              ) : (
-                myReports.slice(0, 6).map((r) => {
-                  const status = REPORT_STATUS_META[r.status];
-                  const priority = PRIORITY_META[r.priority.level];
-                  return (
-                    <Link
-                      key={r.id}
-                      to={`/app/reports/${r.id}`}
-                      className="block rounded-xl border border-ink-100 p-3.5 transition hover:border-primary-300 dark:border-white/10"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="line-clamp-1 text-xs font-bold text-ink-800 dark:text-ink-100">
-                          {r.title}
-                        </p>
-                        <Badge color={status.color} bg={status.bg}>
-                          {status.label}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-ink-400">
-                        <span
-                          className="inline-flex items-center gap-1"
-                          style={{ color: REPORT_CATEGORY_META[r.category].color }}
-                        >
-                          <span
-                            className="h-1.5 w-1.5 rounded-full"
-                            style={{ backgroundColor: REPORT_CATEGORY_META[r.category].color }}
-                          />
-                          {REPORT_CATEGORY_META[r.category].label}
-                        </span>
-                        <span>· {r.reference}</span>
-                        <span className="font-bold" style={{ color: priority.color }}>
-                          · {priority.label}
-                        </span>
-                      </p>
-                    </Link>
-                  );
-                })
-              )}
-            </CardBody>
-          </Card>
-
-          {/* Impact */}
+        <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          {/* Details */}
           <div className="space-y-6">
             <Card>
               <CardHeader
-                icon={<Accessibility className="h-5 w-5" />}
-                title="Community impact"
-                subtitle="How your reports contribute to township accessibility"
+                icon={<UserIcon className="h-5 w-5" />}
+                title="Your details"
+                subtitle="Used on reports you raise and to route township notices to you"
               />
               <CardBody className="space-y-4">
-                <Meter
-                  label="Your reports resolved"
-                  value={resolutionRate}
-                  suffix="%"
-                  color="#047857"
-                />
-                <Meter
-                  label="Share of reports you raised"
-                  value={
-                    allReports.length ? (myReports.length / allReports.length) * 100 : 0
-                  }
-                  suffix="%"
-                  color="#176B5B"
-                />
-                <Meter
-                  label="Reports that reached safety triage"
-                  value={
-                    myReports.length
-                      ? (myReports.filter((r) => r.safetyHazardId).length / myReports.length) * 100
-                      : 0
-                  }
-                  suffix="%"
-                  color="#F0330F"
-                />
-                <Meter
-                  label="Reports that affected accessibility routing"
-                  value={
-                    myReports.length
-                      ? (myReports.filter((r) => r.obstacleId).length / myReports.length) * 100
-                      : 0
-                  }
-                  suffix="%"
-                  color="#0EA5E9"
-                />
+                <div>
+                  <label htmlFor="profile-name" className="label">
+                    Full name
+                  </label>
+                  <input
+                    id="profile-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="input"
+                    autoComplete="name"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="profile-phone" className="label">
+                    Phone number
+                  </label>
+                  <div className="relative">
+                    <Phone className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+                    <input
+                      id="profile-phone"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="Add a contact number"
+                      className="input pl-9"
+                      autoComplete="tel"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="profile-email" className="label">
+                    Email
+                  </label>
+                  <div className="relative">
+                    <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+                    <input
+                      id="profile-email"
+                      value={user.email}
+                      readOnly
+                      className="input cursor-not-allowed pl-9 text-ink-500 dark:text-ink-400"
+                    />
+                  </div>
+                  <p className="hint">Your sign-in email cannot be changed here.</p>
+                </div>
+
+                <div>
+                  <label htmlFor="profile-block" className="label">
+                    Block / street
+                  </label>
+                  <div className="relative">
+                    <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+                    <input
+                      id="profile-block"
+                      value={block}
+                      onChange={(e) => setBlock(e.target.value)}
+                      placeholder="e.g. Emerald Residence, Block A"
+                      className="input pl-9"
+                    />
+                  </div>
+                  <p className="hint">Helps crews find the right entrance for reports near you.</p>
+                </div>
               </CardBody>
             </Card>
 
             <Card>
               <CardHeader
-                icon={<Recycle className="h-5 w-5" />}
-                title="Recent recycling activity"
-                subtitle={`${myActivities.length} submissions`}
+                icon={<MapPin className="h-5 w-5" />}
+                title="Mobility preference"
+                subtitle="Pre-selects your route profile in the navigator"
               />
               <CardBody>
-                {myActivities.length === 0 ? (
-                  <EmptyState
-                    icon={<Recycle className="h-5 w-5" />}
-                    title="No recycling activity"
-                    description="Log a drop-off at any station to earn points."
-                  />
-                ) : (
-                  <div className="space-y-2">
-                    {myActivities.slice(0, 4).map((a) => (
-                      <div
-                        key={a.id}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-ink-100 p-3 dark:border-white/10"
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {MOBILITY_PROFILES.map((p) => {
+                    const active = mobility === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setMobility(p.id)}
+                        aria-pressed={active}
+                        className={cn(
+                          'rounded-xl border p-3.5 text-left transition',
+                          active
+                            ? 'border-primary-500 bg-primary-50 dark:bg-primary-500/10'
+                            : 'border-ink-200 hover:border-primary-300 dark:border-white/10',
+                        )}
                       >
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-bold text-ink-800 dark:text-ink-100">
-                            {formatWeight(a.weightKg)} · {a.stationName}
-                          </p>
-                          <p className="text-[10px] capitalize text-ink-400">{a.status}</p>
-                        </div>
-                        <Badge
-                          color={a.status === 'verified' ? '#047857' : '#B45309'}
-                          bg={a.status === 'verified' ? '#D1FAE5' : '#FEF3C7'}
-                        >
-                          {a.pointsAwarded} pts
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                        <p className="text-sm font-bold text-ink-900 dark:text-white">{p.label}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
+                          {p.description}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </CardBody>
+            </Card>
+
+            <div className="flex justify-end">
+              <Button onClick={handleSave} loading={saving} icon={<Save className="h-4 w-4" />}>
+                Save changes
+              </Button>
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div className="space-y-6">
+            <Card>
+              <CardHeader
+                icon={<Bell className="h-5 w-5" />}
+                title="Notification preferences"
+                subtitle="Choose which events reach your notification centre"
+              />
+              <CardBody className="space-y-2.5">
+                {(
+                  [
+                    {
+                      key: 'reports' as const,
+                      label: 'Report updates',
+                      body: 'Status changes and resolution on reports you raised or supported.',
+                    },
+                    {
+                      key: 'safety' as const,
+                      label: 'Safety alerts',
+                      body: 'New hazards near you and warnings from the township office.',
+                    },
+                    {
+                      key: 'rewards' as const,
+                      label: 'Recycling rewards',
+                      body: 'Points credited and badges unlocked.',
+                    },
+                    {
+                      key: 'digest' as const,
+                      label: 'Weekly digest',
+                      body: 'A summary of township activity every Monday morning.',
+                    },
+                  ]
+                ).map((pref) => (
+                  <button
+                    key={pref.key}
+                    type="button"
+                    onClick={() => setPrefs((p) => ({ ...p, [pref.key]: !p[pref.key] }))}
+                    aria-pressed={prefs[pref.key]}
+                    className="flex w-full items-start gap-3 rounded-xl border border-ink-100 p-3.5 text-left transition hover:border-primary-300 dark:border-white/10"
+                  >
+                    <span
+                      className={cn(
+                        'mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition',
+                        prefs[pref.key] ? 'bg-primary-600' : 'bg-ink-200 dark:bg-white/15',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'block h-4 w-4 rounded-full bg-white shadow transition',
+                          prefs[pref.key] ? 'translate-x-4' : 'translate-x-0',
+                        )}
+                      />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-bold text-ink-800 dark:text-ink-100">
+                        {pref.label}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
+                        {pref.body}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                icon={<Sparkles className="h-5 w-5" />}
+                title="Your activity"
+                subtitle="Jump straight into your reports and recycling"
+              />
+              <CardBody className="space-y-2.5">
+                <Link
+                  to="/app/reports?scope=mine"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-ink-100 p-3.5 transition hover:border-primary-300 dark:border-white/10"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <ClipboardList className="h-4 w-4 text-primary-600 dark:text-primary-300" />
+                    <span className="text-sm font-bold text-ink-800 dark:text-ink-100">
+                      My reports
+                    </span>
+                  </span>
+                  <span className="text-xs font-semibold text-primary-600 dark:text-primary-300">
+                    Open
+                  </span>
+                </Link>
+                <Link
+                  to="/app/recycling?tab=activity"
+                  className="flex items-center justify-between gap-3 rounded-xl border border-ink-100 p-3.5 transition hover:border-primary-300 dark:border-white/10"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <Recycle className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+                    <span className="text-sm font-bold text-ink-800 dark:text-ink-100">
+                      Rewards
+                    </span>
+                  </span>
+                  <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                    {points} pts
+                  </span>
+                </Link>
               </CardBody>
             </Card>
           </div>

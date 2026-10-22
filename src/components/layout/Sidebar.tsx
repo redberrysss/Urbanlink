@@ -24,13 +24,14 @@ export function Sidebar({
   const { notifications } = useTownshipData();
   const [expanded, setExpanded] = useState(true);
 
-  const unread = notifications.data?.filter((n) => !n.read).length ?? 0;
+  const unread =
+    notifications.data?.filter((n) => !n.read && n.scope !== 'township').length ?? 0;
   const sections = user ? navForRole(user.role) : [];
 
   const content = (
     <div className="flex h-full flex-col">
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-ink-100 px-4 dark:border-white/10">
-        <Logo compact={collapsed} />
+        <Logo compact={collapsed} to="/app" />
         <button
           type="button"
           onClick={onCloseMobile}

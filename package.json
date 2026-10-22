@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "test:e2e": "node tests/e2e/run.mjs",
     "test:e2e:routes": "node tests/e2e/routes.mjs",
-    "test:e2e:workflow": "node tests/e2e/workflow.mjs"
+    "test:e2e:workflow": "node tests/e2e/workflow.mjs",
+    "test:e2e:refactor": "node tests/e2e/refactor.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

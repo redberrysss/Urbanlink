@@ -14,11 +14,14 @@ import {
 import { getRepository } from '@/services/data';
 import {
   addTaskEvidence,
+  broadcastTownUpdate,
   changeReportStatus,
+  requestReportReview,
   submitObstacle,
   submitReport,
   supportReport,
   verifyRecyclingActivity,
+  type BroadcastTownUpdateInput,
   type StatusChangeInput,
   type SubmitReportInput,
 } from '@/services/data/actions';
@@ -61,9 +64,11 @@ interface TownshipDataValue {
   createReport: (input: SubmitReportInput) => Promise<Report>;
   setReportStatus: (input: StatusChangeInput) => Promise<Report>;
   support: (reportId: string) => Promise<Report>;
+  requestReview: (input: { reportId: string; reason: string }) => Promise<Report>;
   reportObstacle: (input: Parameters<typeof submitObstacle>[2]) => Promise<AccessibilityObstacle>;
   verifyActivity: (input: Parameters<typeof verifyRecyclingActivity>[1]) => Promise<RecyclingActivity>;
   addEvidence: (input: Parameters<typeof addTaskEvidence>[1]) => Promise<MaintenanceTask>;
+  broadcastUpdate: (input: BroadcastTownUpdateInput) => Promise<AppNotification>;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   resetDemoData: () => Promise<void>;
@@ -153,6 +158,14 @@ export function TownshipDataProvider({ children }: { children: ReactNode }) {
     onSuccess: invalidateCore,
   });
 
+  const reviewMutation = useMutation({
+    mutationFn: async (input: { reportId: string; reason: string }) => {
+      if (!user) throw new Error('You must be signed in.');
+      return requestReportReview(repo, user, input);
+    },
+    onSuccess: invalidateCore,
+  });
+
   const obstacleMutation = useMutation({
     mutationFn: async (input: Parameters<typeof submitObstacle>[2]) => {
       if (!user) throw new Error('You must be signed in.');
@@ -177,6 +190,14 @@ export function TownshipDataProvider({ children }: { children: ReactNode }) {
     onSuccess: invalidateCore,
   });
 
+  const broadcastMutation = useMutation({
+    mutationFn: async (input: BroadcastTownUpdateInput) => {
+      if (!user) throw new Error('You must be signed in.');
+      return broadcastTownUpdate(repo, user, input);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+
   const notificationMutation = useMutation({
     mutationFn: async (id: string) => {
       await repo.updateNotification(id, { read: true });
@@ -187,7 +208,12 @@ export function TownshipDataProvider({ children }: { children: ReactNode }) {
   const markAllRead = useCallback(async () => {
     if (!user) return;
     const list = await repo.listNotifications(user.id);
-    await Promise.all(list.filter((n) => !n.read).map((n) => repo.updateNotification(n.id, { read: true })));
+    // Township-wide notices are broadcasts, so only personal items are marked read.
+    await Promise.all(
+      list
+        .filter((n) => !n.read && n.scope !== 'township')
+        .map((n) => repo.updateNotification(n.id, { read: true })),
+    );
     await queryClient.invalidateQueries({ queryKey: ['notifications'] });
   }, [repo, user, queryClient]);
 
@@ -218,9 +244,11 @@ export function TownshipDataProvider({ children }: { children: ReactNode }) {
       },
       setReportStatus: async (input) => statusMutation.mutateAsync(input),
       support: async (id) => supportMutation.mutateAsync(id),
+      requestReview: async (input) => reviewMutation.mutateAsync(input),
       reportObstacle: async (input) => obstacleMutation.mutateAsync(input),
       verifyActivity: async (input) => verifyMutation.mutateAsync(input),
       addEvidence: async (input) => evidenceMutation.mutateAsync(input),
+      broadcastUpdate: async (input) => broadcastMutation.mutateAsync(input),
       markNotificationRead: async (id) => notificationMutation.mutateAsync(id),
       markAllNotificationsRead: markAllRead,
       resetDemoData: resetDemo,
@@ -239,9 +267,11 @@ export function TownshipDataProvider({ children }: { children: ReactNode }) {
       createReportMutation,
       statusMutation,
       supportMutation,
+      reviewMutation,
       obstacleMutation,
       verifyMutation,
       evidenceMutation,
+      broadcastMutation,
       notificationMutation,
       markAllRead,
       resetDemo,

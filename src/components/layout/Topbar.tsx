@@ -14,6 +14,8 @@ import {
   User as UserIcon,
   Users,
   Repeat,
+  ClipboardList,
+  Recycle,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -22,6 +24,7 @@ import { ROLES_META } from '@/utils/constants';
 import { formatRelative } from '@/utils/constants';
 import { cn } from '@/utils/cn';
 import { Badge } from '../common/Badge';
+import { Logo } from '../common/Logo';
 
 import { EMPTY_LIST } from '@/utils/empty';
 export function Topbar({
@@ -42,7 +45,8 @@ export function Topbar({
   const userRef = useRef<HTMLDivElement>(null);
 
   const items = notifications.data ?? EMPTY_LIST;
-  const unread = items.filter((n) => !n.read);
+  // Township-wide notices are broadcasts, so they never count towards the badge.
+  const unread = items.filter((n) => !n.read && n.scope !== 'township');
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -76,6 +80,9 @@ export function Topbar({
       >
         <Menu className="h-5 w-5" />
       </button>
+
+      {/* The wordmark is the way back to the township overview on every viewport. */}
+      <Logo compact to="/app" className="lg:hidden" />
 
       <button
         type="button"
@@ -233,15 +240,35 @@ export function Topbar({
 
                 <div className="p-1.5">
                   <Link
-                    to="/app/profile"
+                    to={user?.role === 'maintenance' ? '/app/maintenance/profile' : user?.role === 'operator' ? '/app/recycling-operator/profile' : '/app/profile'}
                     onClick={() => setUserOpen(false)}
                     className="nav-link"
                   >
                     <UserIcon className="h-4 w-4" />
                     Profile
                   </Link>
+                  {user?.role === 'resident' ? (
+                    <>
+                      <Link
+                        to="/app/reports"
+                        onClick={() => setUserOpen(false)}
+                        className="nav-link"
+                      >
+                        <ClipboardList className="h-4 w-4" />
+                        My reports
+                      </Link>
+                      <Link
+                        to="/app/recycling"
+                        onClick={() => setUserOpen(false)}
+                        className="nav-link"
+                      >
+                        <Recycle className="h-4 w-4" />
+                        Rewards
+                      </Link>
+                    </>
+                  ) : null}
                   <Link
-                    to="/app/settings"
+                    to={user?.role === 'maintenance' ? '/app/maintenance/settings' : user?.role === 'operator' ? '/app/recycling-operator/settings' : '/app/settings'}
                     onClick={() => setUserOpen(false)}
                     className="nav-link"
                   >
@@ -268,9 +295,9 @@ export function Topbar({
                               role === 'admin'
                                 ? '/app/admin'
                                 : role === 'maintenance'
-                                  ? '/app/tasks'
+                                  ? '/app/maintenance/today'
                                   : role === 'operator'
-                                    ? '/app/verification'
+                                    ? '/app/recycling-operator/dashboard'
                                     : '/app',
                             );
                           }}

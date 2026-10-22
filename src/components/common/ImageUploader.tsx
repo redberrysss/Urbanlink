@@ -8,12 +8,18 @@ export interface UploadedImage {
   size: number;
 }
 
+const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'];
+
+function formatMb(bytes: number) {
+  return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`;
+}
+
 export function ImageUploader({
   value,
   onChange,
   label = 'Photo evidence',
-  hint = 'JPG or PNG up to 5 MB. Optional but speeds up verification.',
-  maxBytes = 5 * 1024 * 1024,
+  hint,
+  maxBytes = 3 * 1024 * 1024,
 }: {
   value?: UploadedImage | null;
   onChange: (v: UploadedImage | null) => void;
@@ -22,19 +28,25 @@ export function ImageUploader({
   maxBytes?: number;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const limitLabel = formatMb(maxBytes);
+  const resolvedHint = hint ?? `JPG, PNG or WebP up to ${limitLabel}. Optional but speeds up verification.`;
+  const lastFileRef = useRef<File | null>(null);
+
   const handleFile = (file: File) => {
     setError(null);
-    if (!file.type.startsWith('image/')) {
-      setError('Please choose an image file.');
+    if (!ACCEPTED.includes(file.type)) {
+      setError('Use a JPG, PNG or WebP image.');
       return;
     }
     if (file.size > maxBytes) {
-      setError('Image is larger than 5 MB. Please compress it and try again.');
+      setError(`Image is larger than ${limitLabel}. Please compress it and try again.`);
       return;
     }
+    lastFileRef.current = file;
     setBusy(true);
     const reader = new FileReader();
     reader.onload = () => {
@@ -42,10 +54,14 @@ export function ImageUploader({
       setBusy(false);
     };
     reader.onerror = () => {
-      setError('Could not read that image.');
+      setError('Could not read that image. Please try again.');
       setBusy(false);
     };
     reader.readAsDataURL(file);
+  };
+
+  const retry = () => {
+    if (lastFileRef.current) handleFile(lastFileRef.current);
   };
 
   return (
@@ -67,9 +83,7 @@ export function ImageUploader({
           </p>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
+        <div
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
@@ -77,25 +91,45 @@ export function ImageUploader({
             if (file) handleFile(file);
           }}
           className={cn(
-            'flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ink-300 bg-ink-50/60 px-4 py-8 text-center transition hover:border-primary-400 hover:bg-primary-50/50 dark:border-white/15 dark:bg-white/[0.02] dark:hover:border-primary-500/50',
+            'flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-ink-300 bg-ink-50/60 px-4 py-7 text-center transition dark:border-white/15 dark:bg-white/[0.02]',
             error && 'border-rose-300 dark:border-rose-500/40',
           )}
         >
           {busy ? (
-            <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
+            <>
+              <Loader2 className="h-6 w-6 animate-spin text-primary-600" />
+              <span className="text-sm font-semibold text-ink-700 dark:text-ink-200">
+                Processing image…
+              </span>
+            </>
           ) : (
-            <ImagePlus className="h-6 w-6 text-ink-400" />
+            <>
+              <ImagePlus className="h-6 w-6 text-ink-400" />
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => cameraRef.current?.click()}
+                  className="btn-secondary btn-sm"
+                >
+                  Take photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => inputRef.current?.click()}
+                  className="btn-secondary btn-sm"
+                >
+                  Choose photo
+                </button>
+              </div>
+              <span className="text-xs text-ink-400">JPG, PNG or WebP · maximum {limitLabel}</span>
+            </>
           )}
-          <span className="text-sm font-semibold text-ink-700 dark:text-ink-200">
-            {busy ? 'Processing image…' : 'Tap to upload or drop an image'}
-          </span>
-          <span className="text-xs text-ink-400">Maximum 5 MB</span>
-        </button>
+        </div>
       )}
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept={ACCEPTED.join(',')}
         className="sr-only"
         onChange={(e) => {
           const file = e.target.files?.[0];
@@ -103,8 +137,33 @@ export function ImageUploader({
           e.target.value = '';
         }}
       />
-      {error ? <p className="mt-1 text-xs font-medium text-rose-600">{error}</p> : null}
-      {!error ? <p className="hint">{hint}</p> : null}
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="sr-only"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleFile(file);
+          e.target.value = '';
+        }}
+      />
+      {error ? (
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <p className="text-xs font-medium text-rose-600">{error}</p>
+          {lastFileRef.current ? (
+            <button
+              type="button"
+              onClick={retry}
+              className="text-xs font-bold text-primary-600 hover:underline dark:text-primary-300"
+            >
+              Retry
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {!error ? <p className="hint">{resolvedHint}</p> : null}
     </div>
   );
 }

@@ -108,7 +108,12 @@ service cloud.firestore {
 
     // -------------------------------------------------------- notifications
     match /notifications/{notificationId} {
-      allow read: if isSignedIn() && (isOwner(resource.data.userId) || isStaff());
+      // Residents read their own notifications plus township-wide notices
+      // (stored with the reserved `township` recipient id).
+      allow read: if isSignedIn()
+                   && (isOwner(resource.data.userId)
+                       || resource.data.userId == 'township'
+                       || isStaff());
       allow create: if isStaff();
       allow update: if isOwner(resource.data.userId) || isStaff();
       allow delete: if isOwner(resource.data.userId) || isAdmin();

@@ -5,6 +5,7 @@ import {
   Accessibility,
   Activity,
   ArrowRight,
+  Bell,
   CheckCircle2,
   ClipboardList,
   Layers,
@@ -41,16 +42,17 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useTownshipData } from '@/contexts/TownshipDataContext';
 import {
-  buildActivityFeed,
   categoryDistribution,
   computeAccessibilityScore,
   computeTownshipStats,
+  hazardTrend,
   maintenancePerformance,
   monthlyIssueSeries,
   recyclingTrend,
 } from '@/services/analytics/aggregations';
 import { MAINTENANCE_TEAMS } from '@/data/seed';
 import {
+  NOTIFICATION_TYPES,
   PRIORITY_META,
   REPORT_CATEGORY_META,
   formatRelative,
@@ -97,6 +99,10 @@ export function OverviewPage() {
   const monthly = useMemo(() => monthlyIssueSeries(bundle.reports, 8), [bundle.reports]);
   const categories = useMemo(() => categoryDistribution(bundle.reports), [bundle.reports]);
   const recycling = useMemo(() => recyclingTrend(bundle.activities, 6), [bundle.activities]);
+  const hazardSeries = useMemo(
+    () => hazardTrend(bundle.hazards, 8).map((h) => h.reported),
+    [bundle.hazards],
+  );
   const performance = useMemo(
     () => maintenancePerformance(MAINTENANCE_TEAMS, bundle.tasks),
     [bundle.tasks],
@@ -107,8 +113,13 @@ export function OverviewPage() {
   );
 
   const feed = useMemo(
-    () => buildActivityFeed(bundle, notifications.data ?? EMPTY_LIST, 10),
-    [bundle, notifications.data],
+    () => (notifications.data ?? EMPTY_LIST).slice(0, 5),
+    [notifications.data],
+  );
+
+  const unreadUpdates = useMemo(
+    () => (notifications.data ?? EMPTY_LIST).filter((n) => !n.read && n.scope !== 'township').length,
+    [notifications.data],
   );
 
   const isAdmin = user?.role === 'admin';
@@ -160,43 +171,38 @@ export function OverviewPage() {
           ) : (
             <>
               <StatCard
-                label="Active Reports"
+                label="Open Reports"
                 value={stats.activeReports}
                 icon={<ClipboardList className="h-5 w-5" />}
                 accent="#FB5A36"
-                delta={12}
-                deltaLabel="vs last week"
                 onClick={() => navigate('/app/reports')}
                 spark={monthly.map((m) => m.submitted)}
               />
               <StatCard
-                label="Resolved Issues"
+                label="Reports Resolved"
                 value={stats.resolvedIssues}
                 icon={<CheckCircle2 className="h-5 w-5" />}
                 accent="#047857"
-                delta={8}
-                deltaLabel="vs last week"
                 onClick={() => navigate('/app/reports?status=resolved')}
                 spark={monthly.map((m) => m.resolved)}
               />
               <StatCard
-                label="Accessibility Score"
+                label="Walkway Health"
                 value={`${accessScore}%`}
                 icon={<Accessibility className="h-5 w-5" />}
                 accent="#176B5B"
                 onClick={() => navigate('/app/navigation')}
-                spark={[70, 72, 68, 74, 76, 78]}
               />
               <StatCard
-                label="Active Hazards"
+                label="Open Hazards"
                 value={stats.activeHazards}
                 icon={<ShieldCheck className="h-5 w-5" />}
                 accent="#F59E0B"
                 onClick={() => navigate('/app/safety')}
-                spark={[6, 7, 9, 8, 7, stats.activeHazards]}
+                spark={hazardSeries}
               />
               <StatCard
-                label="Recycling Participation"
+                label="Residents Recycling"
                 value={stats.recyclingParticipation}
                 unit="residents"
                 icon={<Recycle className="h-5 w-5" />}
@@ -205,17 +211,48 @@ export function OverviewPage() {
                 spark={recycling.map((r) => r.activities)}
               />
               <StatCard
-                label="Total Recycled"
+                label="Recycled (Verified)"
                 value={formatWeight(stats.totalRecycledKg)}
                 icon={<Activity className="h-5 w-5" />}
                 accent="#0EA5E9"
-                delta={18}
-                deltaLabel="vs last month"
                 onClick={() => navigate('/app/recycling')}
                 spark={recycling.map((r) => r.kg)}
               />
             </>
           )}
+        </div>
+
+        {/* ---------- What the numbers mean ---------- */}
+        <div className="rounded-2xl border border-ink-100 bg-white p-4 text-[11px] leading-relaxed text-ink-500 dark:border-white/10 dark:bg-ink-900 dark:text-ink-400">
+          <p className="font-bold text-ink-700 dark:text-ink-200">How these figures are calculated</p>
+          <ul className="mt-1.5 grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
+            <li>
+              <span className="font-bold text-ink-700 dark:text-ink-200">Open / Resolved reports</span> —
+              counted from every community report in the township; resolved means a maintenance crew
+              verified the work on site.
+            </li>
+            <li>
+              <span className="font-bold text-ink-700 dark:text-ink-200">Walkway health</span> — 100
+              minus 0.9 points for every open accessibility obstacle, weighted by its severity and
+              the residents who backed it. 100 means nothing is currently open.
+            </li>
+            <li>
+              <span className="font-bold text-ink-700 dark:text-ink-200">Open hazards</span> — safety
+              hazards that are active or being monitored, including those raised by residents.
+            </li>
+            <li>
+              <span className="font-bold text-ink-700 dark:text-ink-200">Residents recycling</span> —
+              distinct residents with at least one operator-verified submission.
+            </li>
+            <li>
+              <span className="font-bold text-ink-700 dark:text-ink-200">Recycled (verified)</span> —
+              kilograms in submissions an operator has verified, not estimates.
+            </li>
+            <li>
+              <span className="font-bold text-ink-700 dark:text-ink-200">Sparklines</span> — the last
+              eight months of real submissions, resolutions and collections.
+            </li>
+          </ul>
         </div>
 
         {/* ---------- Map + layers ---------- */}
@@ -284,47 +321,68 @@ export function OverviewPage() {
           <div className="space-y-6">
             <Card>
               <CardHeader
-                icon={<Activity className="h-5 w-5" />}
-                title="Recent activity"
-                subtitle="Live feed across all modules"
+                icon={<Bell className="h-5 w-5" />}
+                title="Town updates"
+                subtitle={
+                  unreadUpdates > 0
+                    ? `${unreadUpdates} unread · resolved issues, works and notices`
+                    : 'Resolved issues, township works and notices'
+                }
+                action={
+                  <Link
+                    to="/app/notifications"
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-primary-600 hover:underline dark:text-primary-300"
+                  >
+                    View all
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                }
               />
               <CardBody className="space-y-3">
                 {feed.length === 0 ? (
                   <EmptyState
-                    icon={<Activity className="h-5 w-5" />}
-                    title="No activity yet"
-                    description="Reports and updates will appear here as they happen."
+                    icon={<Bell className="h-5 w-5" />}
+                    title="No updates yet"
+                    description="Resolved reports, maintenance work and township notices will appear here."
                   />
                 ) : (
-                  feed.slice(0, 7).map((item) => (
-                    <div key={item.id} className="flex gap-3">
-                      <span
-                        className={cn(
-                          'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-                          item.kind === 'report'
-                            ? 'bg-coral-500'
-                            : item.kind === 'maintenance'
-                              ? 'bg-sky-500'
-                              : item.kind === 'recycling'
-                                ? 'bg-emerald-500'
-                                : item.kind === 'hazard'
-                                  ? 'bg-amber-500'
-                                  : 'bg-primary-500',
-                        )}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-bold text-ink-800 dark:text-ink-100">
-                          {item.title}
-                        </p>
-                        <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
-                          {item.description}
-                        </p>
-                        <p className="mt-1 text-[10px] font-medium text-ink-400">
-                          {formatRelative(item.at)}
-                        </p>
+                  feed.map((item) => {
+                    const meta = NOTIFICATION_TYPES[item.type];
+                    const body = (
+                      <>
+                        <span
+                          className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: meta.color }}
+                          aria-hidden
+                        />
+                        <div className="min-w-0 flex-1 pb-2">
+                          <p className="truncate text-xs font-bold text-ink-800 dark:text-ink-100">
+                            {item.title}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-ink-500 dark:text-ink-400">
+                            {item.body}
+                          </p>
+                          <p className="mt-1 text-[10px] font-medium text-ink-400">
+                            {meta.label} · {formatRelative(item.at)}
+                          </p>
+                        </div>
+                      </>
+                    );
+
+                    return item.link ? (
+                      <Link
+                        key={item.id}
+                        to={item.link}
+                        className="flex gap-3 rounded-lg transition hover:bg-ink-50 dark:hover:bg-white/[0.04]"
+                      >
+                        {body}
+                      </Link>
+                    ) : (
+                      <div key={item.id} className="flex gap-3">
+                        {body}
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </CardBody>
             </Card>
@@ -574,10 +632,10 @@ export function OverviewPage() {
               color: '#047857',
             },
             {
-              to: '/app/activities',
-              title: 'Track your activities',
-              body: 'Recycling submissions, reward points and achievement badges.',
-              icon: Activity,
+              to: '/app/recycling?tab=activity',
+              title: 'Track your recycling',
+              body: 'Your own submissions, collection history, points and achievement badges.',
+              icon: Recycle,
               color: '#0EA5E9',
             },
           ].map((m, i) => {

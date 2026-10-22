@@ -1,16 +1,22 @@
+import { Link } from 'react-router-dom';
 import { cn } from '@/utils/cn';
 
 export function Logo({
   className,
   compact = false,
   inverted = false,
+  to,
+  label = 'TownSync',
 }: {
   className?: string;
   compact?: boolean;
   inverted?: boolean;
+  /** When provided the wordmark becomes a link to this route. */
+  to?: string;
+  label?: string;
 }) {
-  return (
-    <div className={cn('flex items-center gap-2.5', className)}>
+  const mark = (
+    <>
       <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary-600 shadow-glow">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
           <path
@@ -41,6 +47,23 @@ export function Logo({
           </span>
         </span>
       ) : null}
-    </div>
+    </>
+  );
+
+  if (!to) {
+    return <div className={cn('flex items-center gap-2.5', className)}>{mark}</div>;
+  }
+
+  return (
+    <Link
+      to={to}
+      aria-label={`${label} — go to ${to === '/app' ? 'overview' : 'home'}`}
+      className={cn(
+        'flex items-center gap-2.5 rounded-xl transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-500',
+        className,
+      )}
+    >
+      {mark}
+    </Link>
   );
 }
